@@ -65,12 +65,21 @@ Spring Boot에서 추가로 사용하는 값:
 | --- | --- | --- |
 | `POST` | `/api/auth/signup` | 회원가입 |
 | `POST` | `/api/auth/login` | 로그인 및 JWT 발급 |
-| `POST` | `/api/groups` | 그룹 생성, 생성자는 자동 멤버 등록 |
+| `GET` | `/api/groups` | 내가 속한 그룹 목록과 멤버 조회 |
+| `POST` | `/api/groups` | 그룹 생성, 생성자는 자동 멤버/그룹장 등록, 첫 주제 선택 가능 |
 | `POST` | `/api/groups/join` | 초대코드로 그룹 입장 |
-| `GET` | `/api/topics/today` | 현재 사용자의 기본 그룹 오늘 주제 조회 |
+| `PATCH` | `/api/groups/{id}` | 그룹장 전용 그룹명 변경 |
+| `POST` | `/api/groups/{id}/invite-code` | 그룹장 전용 초대코드 재발급 |
+| `DELETE` | `/api/groups/{id}/members/{userId}` | 그룹장 전용 멤버 내보내기 |
+| `DELETE` | `/api/groups/{id}/membership` | 그룹 나가기, 마지막 멤버가 나가면 그룹 데이터 삭제 |
+| `GET` | `/api/topics/today?groupId={id}` | 선택 그룹의 오늘 주제 조회 |
 | `POST` | `/api/topics/suggestions` | 내일 주제 제안 |
-| `POST` | `/api/drawings` | `multipart/form-data`의 `file` 필드로 PNG/WebP 업로드 |
-| `GET` | `/api/feed?date=YYYY-MM-DD` | 같은 그룹의 날짜별 그림 피드 조회 |
+| `GET` | `/api/topics/suggestions/mine?groupId={id}` | 내 내일 주제 제안 조회 |
+| `PUT` | `/api/topics/suggestions/{id}` | 내 주제 제안 수정 |
+| `DELETE` | `/api/topics/suggestions/{id}` | 내 주제 제안 삭제 |
+| `POST` | `/api/drawings` | `multipart/form-data`의 `groupId`, `file` 필드로 PNG/WebP 업로드 |
+| `DELETE` | `/api/drawings/{id}` | 내 그림 삭제 |
+| `GET` | `/api/feed?groupId={id}&date=YYYY-MM-DD` | 같은 그룹의 날짜별 그림 피드 조회 |
 
 요청 예시:
 
@@ -82,7 +91,11 @@ curl -X POST http://localhost:8081/api/auth/signup \
 
 ## 서비스 동작
 
-- 사용자는 여러 그룹에 가입할 수 있지만, MVP UI/API는 가장 먼저 가입한 그룹을 기본 그룹으로 사용합니다.
+- 사용자는 여러 그룹에 가입할 수 있고 로그인 후 그룹 선택 화면에서 작업할 그룹을 고릅니다.
+- 그룹 생성자는 그룹장이 되며 그룹명 변경, 초대코드 재발급, 멤버 내보내기를 할 수 있습니다.
+- 그룹 생성 시 첫 주제를 직접 입력할 수 있고, 비우면 시스템 기본 주제가 자동 선택됩니다.
+- 그룹장이 나가면 남은 멤버 중 가장 먼저 들어온 멤버에게 그룹장이 넘어갑니다.
+- 마지막 멤버가 그룹을 나가면 그룹의 주제, 제안, 그림 DB 데이터와 로컬 이미지 파일이 삭제됩니다.
 - 매일 00시(`APP_TIME_ZONE` 기준)에 그룹별 주제를 선정합니다.
 - 자정 스케줄이 실행되지 못해도 `GET /api/topics/today` 또는 피드 조회 시 해당 날짜 주제를 자동 생성합니다.
 - 주제 제안은 항상 다음 날 날짜로 저장됩니다.
