@@ -80,6 +80,8 @@ Spring Boot에서 추가로 사용하는 값:
 | `POST` | `/api/drawings` | `multipart/form-data`의 `groupId`, `file` 필드로 PNG/WebP 업로드 |
 | `DELETE` | `/api/drawings/{id}` | 내 그림 삭제 |
 | `GET` | `/api/feed?groupId={id}&date=YYYY-MM-DD` | 같은 그룹의 날짜별 그림 피드 조회 |
+| `GET` | `/api/groups/{id}/messages` | 같은 그룹의 최근 채팅 메시지 조회 |
+| `POST` | `/api/groups/{id}/messages` | 일반 채팅, 그림 인용 채팅, 메시지 답장 작성 |
 
 요청 예시:
 
@@ -101,6 +103,8 @@ curl -X POST http://localhost:8081/api/auth/signup \
 - 주제 제안은 항상 다음 날 날짜로 저장됩니다.
 - 그룹에 해당 날짜 제안이 있으면 그중 랜덤 선택, 없으면 시스템 기본 주제 목록에서 랜덤 선택합니다.
 - 피드는 인증된 사용자가 속한 기본 그룹의 그림만 반환합니다.
+- 그룹 채팅은 같은 그룹 멤버만 조회/작성할 수 있습니다.
+- 그림 아래의 인용 버튼으로 특정 그림을 채팅에 붙일 수 있고, 메시지의 답하기 버튼으로 대화 문맥을 이어갈 수 있습니다.
 
 ## 저장소 구조
 
@@ -109,6 +113,7 @@ curl -X POST http://localhost:8081/api/auth/signup \
 ├── backend
 │   └── src/main/java/com/drawlog
 │       ├── auth
+│       ├── chat
 │       ├── config
 │       ├── drawing
 │       ├── group
@@ -141,7 +146,7 @@ Google Cloud Storage로 교체할 때는 새 구현체를 만들고 `storeImage(
 
 ## 테스트
 
-백엔드 통합 테스트는 그룹 생성, 첫 주제 지정, 그룹장 권한, 멤버 내보내기, 방장 승계, 마지막 멤버 퇴장 시 그룹 삭제 흐름을 검증합니다. Docker 백엔드 이미지 빌드 중에도 테스트가 실행됩니다.
+백엔드 통합 테스트는 그룹 생성, 첫 주제 지정, 그룹장 권한, 멤버 내보내기, 방장 승계, 마지막 멤버 퇴장 시 그룹 삭제, 그룹 채팅의 인용/답장/권한 흐름을 검증합니다. Docker 백엔드 이미지 빌드 중에도 테스트가 실행됩니다.
 
 ```bash
 docker compose build backend

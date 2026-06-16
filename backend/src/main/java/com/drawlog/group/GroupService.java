@@ -1,6 +1,7 @@
 package com.drawlog.group;
 
 import com.drawlog.drawing.DrawingRepository;
+import com.drawlog.chat.ChatMessageRepository;
 import com.drawlog.config.AppProperties;
 import com.drawlog.storage.StorageService;
 import com.drawlog.topic.DailyTopic;
@@ -23,6 +24,7 @@ public class GroupService {
     private final FriendGroupRepository groupRepository;
     private final GroupMemberRepository memberRepository;
     private final UserRepository userRepository;
+    private final ChatMessageRepository chatMessageRepository;
     private final DrawingRepository drawingRepository;
     private final TopicSuggestionRepository suggestionRepository;
     private final DailyTopicRepository dailyTopicRepository;
@@ -30,11 +32,12 @@ public class GroupService {
     private final AppProperties properties;
 
     public GroupService(FriendGroupRepository groupRepository, GroupMemberRepository memberRepository, UserRepository userRepository,
-                        DrawingRepository drawingRepository, TopicSuggestionRepository suggestionRepository,
+                        ChatMessageRepository chatMessageRepository, DrawingRepository drawingRepository, TopicSuggestionRepository suggestionRepository,
                         DailyTopicRepository dailyTopicRepository, StorageService storageService, AppProperties properties) {
         this.groupRepository = groupRepository;
         this.memberRepository = memberRepository;
         this.userRepository = userRepository;
+        this.chatMessageRepository = chatMessageRepository;
         this.drawingRepository = drawingRepository;
         this.suggestionRepository = suggestionRepository;
         this.dailyTopicRepository = dailyTopicRepository;
@@ -168,6 +171,7 @@ public class GroupService {
     }
 
     private void deleteEmptyGroup(Long groupId) {
+        chatMessageRepository.deleteByGroupId(groupId);
         drawingRepository.findByGroupId(groupId).forEach(drawing -> {
             storageService.deleteImage(drawing.getImageUrl());
             drawingRepository.delete(drawing);

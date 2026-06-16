@@ -9,8 +9,11 @@ import {
   CalendarDays,
   ChevronRight,
   LogOut,
+  MessageCircle,
   Plus,
+  Quote,
   Redo2,
+  Reply,
   Save,
   Trash2,
   Undo2,
@@ -73,15 +76,112 @@ function formatDateLabel(date) {
 function DateNavigator({ date, onChange }) {
   const inputRef = useRef(null);
 
-  function openCalendar() {
-    const input = inputRef.current;
-    if (!input) return;
-    if (typeof input.showPicker === 'function') {
-      input.showPicker();
-    } else {
-      input.focus();
-      input.click();
-    }
+function shiftMonth(month, delta) {
+  const [year, monthIndex] = month.split('-').map(Number);
+  const next = new Date(year, monthIndex - 1 + delta, 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthDates(month) {
+  const [year, monthIndex] = month.split('-').map(Number);
+  const lastDay = new Date(year, monthIndex, 0).getDate();
+  const firstWeekday = new Date(year, monthIndex - 1, 1).getDay();
+  const dates = Array.from({ length: firstWeekday }, () => null);
+  for (let day = 1; day <= lastDay; day += 1) {
+    dates.push(`${year}-${String(monthIndex).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+  }
+  return dates;
+}
+
+function inviteFromUrl() {
+  const pathMatch = window.location.pathname.match(/^\/invite\/([^/]+)/);
+  return pathMatch?.[1] || new URLSearchParams(window.location.search).get('invite') || '';
+}
+
+function drawingImageUrl(drawing) {
+  return drawing?.imageUrl || drawing?.imagePath || drawing?.thumbnailUrl || '';
+}
+
+function quoteImageUrl(quote) {
+  return quote?.imageUrl || quote?.imagePath || quote?.thumbnailUrl || '';
+}
+
+function messagePreview(content, limit = 72) {
+  const text = (content || '').trim().replace(/\s+/g, ' ');
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1)}…`;
+}
+
+function imageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('이미지를 읽지 못했습니다.'));
+    };
+    image.src = url;
+  });
+}
+
+async function resizeProfileImage(file) {
+  if (!file?.type?.startsWith('image/')) return file;
+  const image = await imageFromFile(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) return file;
+
+  const outputSize = 768;
+  const sourceSize = Math.min(sourceWidth, sourceHeight);
+  const sourceX = Math.max(0, (sourceWidth - sourceSize) / 2);
+  const sourceY = Math.max(0, (sourceHeight - sourceSize) / 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = outputSize;
+  canvas.height = outputSize;
+  const context = canvas.getContext('2d');
+  if (!context) return file;
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, outputSize, outputSize);
+  context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, outputSize, outputSize);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+  if (!blob) return file;
+  return new File([blob], 'profile.webp', { type: 'image/webp' });
+}
+
+function DateNavigator({ date, onChange, selectableDates = [] }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(monthKey(date));
+  const today = todayString();
+  const availableDates = useMemo(() => (
+    Array.from(new Set(selectableDates))
+      .filter((recordDate) => recordDate <= today)
+      .sort()
+  ), [selectableDates, today]);
+  const recordDateSet = useMemo(() => new Set(availableDates), [availableDates]);
+  const previousDate = useMemo(() => {
+    const before = availableDates.filter((recordDate) => recordDate < date);
+    return before.length ? before[before.length - 1] : null;
+  }, [availableDates, date]);
+  const nextDate = useMemo(() => availableDates.find((recordDate) => recordDate > date) || null, [availableDates, date]);
+
+  useEffect(() => {
+    setVisibleMonth(monthKey(date));
+  }, [date]);
+
+  function changeDate(nextRecordDate) {
+    if (!nextRecordDate || !recordDateSet.has(nextRecordDate)) return;
+    onChange(nextRecordDate);
+  }
+
+  function selectFromPicker(nextDate) {
+    if (!nextDate || nextDate > today || !recordDateSet.has(nextDate)) return;
+    onChange(nextDate);
+    setPickerOpen(false);
   }
 
   return (
@@ -290,7 +390,6 @@ function DrawingModal({ token, groupId, existingDrawing, onClose, onSaved }) {
   const undoStack = useRef([]);
   const redoStack = useRef([]);
   const [tool, setTool] = useState('pen');
-  const [brushMode, setBrushMode] = useState('ink');
   const [color, setColor] = useState('#202124');
   const [size, setSize] = useState(8);
   const [zoom, setZoom] = useState(1);
@@ -382,30 +481,36 @@ function DrawingModal({ token, groupId, existingDrawing, onClose, onSaved }) {
     drawingRef.current = true;
     lastPoint.current = point(event);
     canvasRef.current.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+
+  function drawTo(rawEvent) {
+    const ctx = canvasRef.current.getContext('2d');
+    const next = point(rawEvent);
+    if (!lastPoint.current) {
+      lastPoint.current = next;
+      return;
+    }
+    ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+    ctx.beginPath();
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
+    ctx.lineTo(next.x, next.y);
+    ctx.stroke();
+    lastPoint.current = next;
   }
 
   function move(event) {
     if (!drawingRef.current) return;
-    const ctx = canvasRef.current.getContext('2d');
-    const next = point(event);
-    ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = tool === 'pen' && brushMode === 'marker' ? 0.32 : 1;
-    ctx.lineWidth = size;
-    const mid = {
-      x: (lastPoint.current.x + next.x) / 2,
-      y: (lastPoint.current.y + next.y) / 2,
-    };
-    ctx.beginPath();
-    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
-    ctx.quadraticCurveTo(lastPoint.current.x, lastPoint.current.y, mid.x, mid.y);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    lastPoint.current = next;
+    const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [event];
+    events.forEach(drawTo);
+    event.preventDefault();
   }
 
   function stop(event) {
     if (!drawingRef.current) return;
+    drawTo(event);
     drawingRef.current = false;
     lastPoint.current = null;
     pushHistory();
@@ -470,8 +575,6 @@ function DrawingModal({ token, groupId, existingDrawing, onClose, onSaved }) {
         <div className="toolbar">
           <button title="펜" className={tool === 'pen' ? 'active' : ''} onClick={() => setTool('pen')}><Brush size={18} /></button>
           <button title="지우개" className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}><Eraser size={18} /></button>
-          <button title="일반 펜" className={brushMode === 'ink' ? 'active' : ''} onClick={() => { setTool('pen'); setBrushMode('ink'); }}>펜</button>
-          <button title="형광펜" className={brushMode === 'marker' ? 'active' : ''} onClick={() => { setTool('pen'); setBrushMode('marker'); }}>형광</button>
           <button title="뒤로" disabled={!canUndo} onClick={undo}><Undo2 size={18} /></button>
           <button title="앞으로" disabled={!canRedo} onClick={redo}><Redo2 size={18} /></button>
           <button title="축소" onClick={() => setZoom((value) => Math.max(0.75, Number((value - 0.25).toFixed(2))))}><ZoomOut size={18} /></button>
@@ -501,7 +604,169 @@ function DrawingModal({ token, groupId, existingDrawing, onClose, onSaved }) {
   );
 }
 
-function DrawingViewer({ drawing, onClose }) {
+function ChatPanel({ token, auth, groupId, quoteTarget, onClearQuote }) {
+  const [messages, setMessages] = useState([]);
+  const [content, setContent] = useState('');
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [error, setError] = useState('');
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (quoteTarget) {
+      setContext({ type: 'drawing', drawing: quoteTarget });
+    }
+  }, [quoteTarget]);
+
+  async function loadMessages({ quiet = false } = {}) {
+    try {
+      const data = await request(`/groups/${groupId}/messages`, {}, token);
+      setMessages(data || []);
+      if (!quiet) setError('');
+    } catch (err) {
+      if (!quiet) setError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    loadMessages();
+    const timer = window.setInterval(() => loadMessages({ quiet: true }), 5000);
+    return () => window.clearInterval(timer);
+  }, [groupId, token]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (quoteTarget) setReplyTarget(null);
+  }, [quoteTarget?.id]);
+
+  function quoteMessage(message) {
+    setReplyTarget({
+      id: message.id,
+      username: message.username,
+      content: message.content,
+    });
+    onClearQuote();
+  }
+
+  async function send(event) {
+    event.preventDefault();
+    if (!content.trim()) return;
+    setError('');
+    try {
+      await request(`/groups/${groupId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          drawingId: quoteTarget?.id || null,
+          replyToMessageId: replyTarget?.id || null,
+        }),
+      }, token);
+      setContent('');
+      onClearQuote();
+      setReplyTarget(null);
+      await loadMessages({ quiet: true });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <section className="chat-panel">
+      <div className="chat-title">
+        <div className="panel-title"><MessageCircle size={18} /><h2>그룹 채팅</h2></div>
+        <button title="새로고침" onClick={() => loadMessages()}><Redo2 size={16} /></button>
+      </div>
+      <div className="chat-list">
+        {messages.length === 0 && <p className="muted empty-chat">아직 대화가 없어요.</p>}
+        {messages.map((message) => {
+          const mine = message.userId === auth.userId;
+          const quoted = Boolean(message.quote);
+          const replied = Boolean(message.replyTo);
+          const bubbleClass = ['chat-bubble'];
+          if (quoted) bubbleClass.push('with-quote');
+          if (replied) bubbleClass.push('with-reply');
+          if (!quoted && !replied) bubbleClass.push('text-only');
+          return (
+            <div className={`chat-row ${mine ? 'mine' : 'theirs'}`} key={message.id}>
+              {!mine && (
+                <span className="chat-avatar">
+                  {message.profileImageUrl ? (
+                    <img src={message.profileImageUrl} alt={`${message.username} 프로필`} loading="lazy" decoding="async" />
+                  ) : (
+                    (message.username || '?').slice(0, 1)
+                  )}
+                </span>
+              )}
+              <div className="chat-message-stack">
+                {!mine && <span className="chat-sender-name">{message.username}</span>}
+                <div className={bubbleClass.join(' ')}>
+                  {message.quote && (
+                    <div className="chat-quote-preview">
+                      <img src={quoteImageUrl(message.quote)} alt={`${message.quote.username} 그림`} loading="lazy" decoding="async" />
+                      <div>
+                        <span>{message.quote.username}의 그림</span>
+                        <p>{message.quote.topicText}</p>
+                      </div>
+                    </div>
+                  )}
+                  {message.replyTo && (
+                    <div className="chat-reply-preview">
+                      <span>{message.replyTo.username}</span>
+                      <p>{messagePreview(message.replyTo.content)}</p>
+                    </div>
+                  )}
+                  <p>{message.content}</p>
+                </div>
+                <div className="chat-meta">
+                  <span>{new Date(message.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</span>
+                  {!message.deletedAt && <button onClick={() => quoteMessage(message)}><Quote size={14} /> 인용</button>}
+                  {mine && !message.deletedAt && <button onClick={() => remove(message.id)}><Trash2 size={14} /> 삭제</button>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+      {context && (
+        <div className="composer-context">
+          {context.type === 'drawing' ? (
+            <>
+              <Quote size={16} />
+              <span>{context.drawing.username}님의 그림에 말하는 중</span>
+            </>
+          ) : (
+            <>
+              <Reply size={16} />
+              <span>{context.message.username}님에게 답장 중</span>
+            </>
+          )}
+          <button title="취소" onClick={clearContext}><X size={15} /></button>
+        </div>
+      )}
+      {replyTarget && (
+        <div className="composer-context reply-context">
+          <Quote size={16} />
+          <div>
+            <strong>{replyTarget.username}</strong>
+            <span>{messagePreview(replyTarget.content)}</span>
+          </div>
+          <button title="취소" onClick={() => setReplyTarget(null)}><X size={15} /></button>
+        </div>
+      )}
+      <form className="chat-composer" onSubmit={send}>
+        <input placeholder="메시지 입력" value={content} onChange={(e) => setContent(e.target.value)} maxLength={1000} />
+        <button className="primary" type="submit">전송</button>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+function DrawingViewer({ drawing, onClose, onQuote }) {
   if (!drawing) return null;
   return (
     <div className="modal-backdrop">
@@ -514,6 +779,10 @@ function DrawingViewer({ drawing, onClose }) {
           <button title="닫기" onClick={onClose}><X size={18} /></button>
         </div>
         <img src={drawing.imageUrl} alt={`${drawing.username}의 그림`} />
+        <button className="quote-wide" onClick={() => {
+          onQuote(drawing);
+          onClose();
+        }}><Quote size={17} /> 채팅에 인용</button>
       </section>
     </div>
   );
@@ -526,6 +795,7 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [viewerDrawing, setViewerDrawing] = useState(null);
+  const [chatQuote, setChatQuote] = useState(null);
   const [groupName, setGroupName] = useState(group.name);
   const [ownerMessage, setOwnerMessage] = useState('');
   const inviteLink = `${window.location.origin}?invite=${group.inviteCode}`;
@@ -663,20 +933,24 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
       )}
       <section className="member-board">
         {feed?.members?.map((member) => (
-          <button
+          <article
             className={`member-tile ${member.drawing ? 'done' : ''} ${member.userId === auth.userId ? 'mine' : ''}`}
             key={member.userId}
-            onClick={() => openMember(member)}
           >
-            <span>{member.username}</span>
-            {member.owner && <strong className="owner-badge">방장</strong>}
-            {member.drawing ? (
-              <img src={member.drawing.imageUrl} alt={`${member.username} 미리보기`} />
-            ) : (
-              <small>{member.userId === auth.userId && isToday ? '그리기' : '아직 없음'}</small>
+            <button className="member-tile-main" onClick={() => openMember(member)}>
+              <span>{member.username}</span>
+              {member.owner && <strong className="owner-badge">방장</strong>}
+              {member.drawing ? (
+                <img src={member.drawing.imageUrl} alt={`${member.username} 미리보기`} />
+              ) : (
+                <small>{member.userId === auth.userId && isToday ? '그리기' : '아직 없음'}</small>
+              )}
+              <em>{member.userId === auth.userId && isToday ? <Edit3 size={15} /> : member.drawing ? <Eye size={15} /> : null}</em>
+            </button>
+            {member.drawing && (
+              <button className="quote-button" onClick={() => setChatQuote(member.drawing)}><Quote size={14} /> 인용</button>
             )}
-            <em>{member.userId === auth.userId && isToday ? <Edit3 size={15} /> : member.drawing ? <Eye size={15} /> : null}</em>
-          </button>
+          </article>
         ))}
       </section>
       {myDrawing && (
@@ -686,9 +960,17 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
             <h2>내 그림 미리보기</h2>
           </div>
           <img src={myDrawing.imageUrl} alt="내 그림 미리보기" />
+          <button onClick={() => setChatQuote(myDrawing)}><Quote size={15} /> 인용</button>
           {isToday ? <button onClick={() => setEditorOpen(true)}>수정하기</button> : <button onClick={() => setViewerDrawing(myDrawing)}>크게보기</button>}
         </section>
       )}
+      <ChatPanel
+        token={auth.token}
+        auth={auth}
+        groupId={group.id}
+        quoteTarget={chatQuote}
+        onClearQuote={() => setChatQuote(null)}
+      />
       {isToday && !myDrawing && <button className="floating-draw" onClick={() => setEditorOpen(true)}><Edit3 size={18} /> 내 그림 그리기</button>}
       {editorOpen && (
         <DrawingModal
@@ -699,7 +981,7 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
           onSaved={refreshAll}
         />
       )}
-      <DrawingViewer drawing={viewerDrawing} onClose={() => setViewerDrawing(null)} />
+      <DrawingViewer drawing={viewerDrawing} onClose={() => setViewerDrawing(null)} onQuote={setChatQuote} />
     </main>
   );
 }
