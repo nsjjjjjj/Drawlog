@@ -1,0 +1,51 @@
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-drawlog}
+      MARIADB_USER: ${MARIADB_USER:-drawlog}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-drawlog}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-drawlog-root}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  backend:
+    build:
+      context: ./backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mariadb://db:3306/${MARIADB_DATABASE:-drawlog}
+      SPRING_DATASOURCE_USERNAME: ${MARIADB_USER:-drawlog}
+      SPRING_DATASOURCE_PASSWORD: ${MARIADB_PASSWORD:-drawlog}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-drawlog-local-dev-secret-must-be-at-least-32-bytes}
+      APP_UPLOAD_DIR: /app/uploads
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-Asia/Seoul}
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:5173,http://localhost:8081,http://localhost,http://127.0.0.1:8081,http://192.168.*:8081,http://10.*:8081,http://172.*:8081}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  db_data:
+  uploads:

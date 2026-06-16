@@ -1,0 +1,27 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mariadb://localhost:3306/drawlog}
+    username: ${SPRING_DATASOURCE_USERNAME:drawlog}
+    password: ${SPRING_DATASOURCE_PASSWORD:drawlog}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  servlet:
+    multipart:
+      max-file-size: ${APP_MAX_FILE_SIZE:5MB}
+      max-request-size: ${APP_MAX_REQUEST_SIZE:6MB}
+
+app:
+  jwt-secret: ${APP_JWT_SECRET:change-this-secret-to-a-long-random-value-please}
+  jwt-expiration-ms: ${APP_JWT_EXPIRATION_MS:604800000}
+  upload-dir: ${APP_UPLOAD_DIR:/app/uploads}
+  public-upload-path: /uploads
+  max-image-bytes: ${APP_MAX_IMAGE_BYTES:5242880}
+  time-zone: ${APP_TIME_ZONE:Asia/Seoul}
+  cors-allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:5173,http://localhost:8081,http://localhost,http://127.0.0.1:8081,http://192.168.*:8081,http://10.*:8081,http://172.*:8081}
