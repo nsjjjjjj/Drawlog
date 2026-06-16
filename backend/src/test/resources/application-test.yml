@@ -1,16 +1,22 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:drawlog-test;MODE=MariaDB;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    url: jdbc:h2:mem:drawlog-test;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver
     username: sa
     password:
   jpa:
     hibernate:
       ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
 
 app:
   jwt-secret: test-secret-key-for-drawlog-that-is-long-enough
-  jwt-expiration-ms: 3600000
+  access-token-expiration-ms: 1800000
+  refresh-token-expiration-ms: 1209600000
+  refresh-cookie-name: drawlog_refresh
+  cookie-secure: false
   upload-dir: ${java.io.tmpdir}/drawlog-test-uploads
   public-upload-path: /uploads
   max-image-bytes: 5242880

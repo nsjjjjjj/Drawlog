@@ -14,7 +14,6 @@ public class FeedDtos {
             String profileImageUrl,
             MemberRole role,
             Instant joinedAt,
-            boolean submitted,
             DrawingDtos.DrawingResponse drawing
     ) {}
 
@@ -25,6 +24,4 @@ public class FeedDtos {
             boolean feedLocked,
             List<MemberDrawingResponse> members
     ) {}
-
-    public record FeedDatesResponse(List<LocalDate> dates) {}
 }

@@ -2,6 +2,7 @@ package com.drawlog.auth;
 
 import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
+import com.drawlog.user.UserStatus;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,6 +32,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 Long userId = jwtService.parseUserId(header.substring(7));
                 User user = userRepository.findById(userId).orElseThrow();
+                if (user.getStatus() != UserStatus.ACTIVE) {
+                    throw new IllegalStateException("deleted user");
+                }
                 CurrentUser principal = new CurrentUser(user.getId(), user.getEmail());
                 UsernamePasswordAuthenticationToken auth =
                         new UsernamePasswordAuthenticationToken(principal, null, List.of());

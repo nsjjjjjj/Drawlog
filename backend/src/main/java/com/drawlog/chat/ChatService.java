@@ -1,16 +1,20 @@
 package com.drawlog.chat;
 
+import com.drawlog.common.ApiException;
+import com.drawlog.common.ErrorCode;
 import com.drawlog.drawing.Drawing;
 import com.drawlog.drawing.DrawingRepository;
 import com.drawlog.group.FriendGroup;
 import com.drawlog.group.GroupService;
+import com.drawlog.notification.NotificationService;
 import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
-import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class ChatService {
@@ -18,62 +22,52 @@ public class ChatService {
     private final DrawingRepository drawingRepository;
     private final GroupService groupService;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public ChatService(ChatMessageRepository chatMessageRepository, DrawingRepository drawingRepository,
-                       GroupService groupService, UserRepository userRepository) {
+                       GroupService groupService, UserRepository userRepository, NotificationService notificationService) {
         this.chatMessageRepository = chatMessageRepository;
         this.drawingRepository = drawingRepository;
         this.groupService = groupService;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @Transactional(readOnly = true)
-    public List<ChatDtos.ChatMessageResponse> messages(Long userId, Long groupId) {
+    public ChatDtos.ChatPageResponse messages(Long userId, Long groupId, Long cursor, int size) {
         FriendGroup group = groupService.requireGroup(userId, groupId);
         int pageSize = Math.min(Math.max(size, 1), 50);
         List<ChatMessage> rows = (cursor == null
-                ? chatMessageRepository.findByGroupIdAndDeletedAtIsNullOrderByCreatedAtDesc(group.getId(), PageRequest.of(0, pageSize))
-                : chatMessageRepository.findByGroupIdAndDeletedAtIsNullAndIdLessThanOrderByCreatedAtDesc(group.getId(), cursor, PageRequest.of(0, pageSize)));
+                ? chatMessageRepository.findByGroupIdOrderByCreatedAtDesc(group.getId(), PageRequest.of(0, pageSize))
+                : chatMessageRepository.findByGroupIdAndIdLessThanOrderByCreatedAtDesc(group.getId(), cursor, PageRequest.of(0, pageSize)));
         List<ChatDtos.ChatMessageResponse> messages = rows.stream()
                 .sorted(Comparator.comparing(ChatMessage::getCreatedAt).thenComparing(ChatMessage::getId))
                 .map(this::toResponse)
                 .toList();
+        Long nextCursor = rows.size() < pageSize ? null : rows.get(rows.size() - 1).getId();
+        return new ChatDtos.ChatPageResponse(messages, nextCursor);
     }
 
     @Transactional
     public ChatDtos.ChatMessageResponse send(Long userId, Long groupId, ChatDtos.SendMessageRequest request) {
         FriendGroup group = groupService.requireGroup(userId, groupId);
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
 
         ChatMessage message = new ChatMessage();
         message.setGroup(group);
-        message.setUser(user);
+        message.setSender(user);
+        message.setType(request.type());
         message.setContent(request.content().trim());
-
-        if (request.drawingId() != null && request.replyToMessageId() != null) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "한 번에 하나만 인용할 수 있습니다.");
-        }
 
         if (request.type() == ChatMessageType.DRAWING_QUOTE) {
             if (request.drawingId() == null) throw new ApiException(ErrorCode.BAD_REQUEST, "인용할 그림이 필요합니다.");
             Drawing drawing = drawingRepository.findById(request.drawingId())
                     .orElseThrow(() -> new ApiException(ErrorCode.DRAWING_NOT_FOUND));
             if (!drawing.getGroup().getId().equals(group.getId())) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "같은 그룹의 그림만 인용할 수 있습니다.");
+                throw new ApiException(ErrorCode.FORBIDDEN, "같은 그룹의 그림만 인용할 수 있습니다.");
             }
-            message.setQuotedDrawingId(drawing.getId());
-            message.setQuotedDrawingImageUrl(drawing.getImageUrl());
-            message.setQuotedDrawingAuthor(drawing.getUser().getUsername());
-            message.setQuotedDrawingTopicText(drawing.getTopic().getText());
-        }
-
-        if (request.replyToMessageId() != null) {
-            ChatMessage replyToMessage = chatMessageRepository.findById(request.replyToMessageId())
-                    .filter(found -> found.getGroup().getId().equals(group.getId()))
-                    .filter(found -> found.getDeletedAt() == null)
-                    .orElseThrow(() -> new ApiException(ErrorCode.CHAT_MESSAGE_NOT_FOUND));
-            message.setReplyToMessage(replyToMessage);
+            message.setDrawing(drawing);
         }
 
         ChatMessage saved = chatMessageRepository.save(message);
@@ -81,20 +75,23 @@ public class ChatService {
         return toResponse(saved);
     }
 
-        return toResponse(chatMessageRepository.save(message));
+    @Transactional
+    public void delete(Long userId, Long groupId, Long messageId) {
+        groupService.requireGroup(userId, groupId);
+        ChatMessage message = chatMessageRepository.findById(messageId)
+                .filter(found -> found.getGroup().getId().equals(groupId))
+                .orElseThrow(() -> new ApiException(ErrorCode.CHAT_MESSAGE_NOT_FOUND));
+        if (!message.getSender().getId().equals(userId)) throw new ApiException(ErrorCode.FORBIDDEN, "내 메시지만 삭제할 수 있습니다.");
+        message.setDeletedAt(Instant.now());
     }
 
     public ChatDtos.ChatMessageResponse toResponse(ChatMessage message) {
-        ChatDtos.QuoteResponse quote = message.getQuotedDrawingId() == null ? null : new ChatDtos.QuoteResponse(
-                message.getQuotedDrawingId(),
-                message.getQuotedDrawingImageUrl(),
-                message.getQuotedDrawingAuthor(),
-                message.getQuotedDrawingTopicText()
-        );
-        ChatDtos.ReplyResponse reply = message.getReplyToMessageId() == null ? null : new ChatDtos.ReplyResponse(
-                message.getReplyToMessageId(),
-                message.getReplyToUsername(),
-                message.getReplyToContent()
+        Drawing drawing = message.getDrawing();
+        ChatDtos.QuoteResponse quote = drawing == null ? null : new ChatDtos.QuoteResponse(
+                drawing.getId(),
+                drawing.getThumbnailPath(),
+                drawing.getUser().getNickname(),
+                drawing.getDailyTopic().getText()
         );
         ChatDtos.ReplyToMessageResponse replyTo = null;
         ChatMessage replyToMessage = message.getReplyToMessage();
@@ -112,18 +109,12 @@ public class ChatService {
                 message.getGroup().getId(),
                 message.getSender().getId(),
                 message.getSender().getNickname(),
-                message.getSender().getProfileImageUrl(),
                 message.getType(),
-                message.getContent(),
+                message.getDeletedAt() == null ? message.getContent() : "삭제된 메시지입니다.",
                 drawing == null ? null : drawing.getId(),
                 message.getDeletedAt(),
                 message.getCreatedAt(),
-                quote,
-                replyTo
+                quote
         );
-    }
-
-    private String preview(String content) {
-        return content.length() <= 220 ? content : content.substring(0, 217) + "...";
     }
 }

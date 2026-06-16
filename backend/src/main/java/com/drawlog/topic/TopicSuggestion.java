@@ -8,14 +8,22 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import java.time.LocalDate;
 
 @Entity
-@Table(name = "topic_suggestions")
+@Table(
+        name = "topic_suggestions",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "group_id", "target_date"}),
+        indexes = @Index(name = "idx_topic_suggestions_group_target_date", columnList = "group_id,target_date")
+)
 public class TopicSuggestion {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,23 +37,39 @@ public class TopicSuggestion {
     @JoinColumn(name = "user_id")
     private User user;
 
+    @Column(nullable = false, name = "target_date")
+    private LocalDate targetDate;
+
     @Column(nullable = false, length = 120)
     private String text;
 
     @Column(nullable = false)
-    private LocalDate targetDate;
+    private Instant createdAt = Instant.now();
 
     @Column(nullable = false)
-    private Instant createdAt = Instant.now();
+    private Instant updatedAt = Instant.now();
+
+    @PrePersist
+    void prePersist() {
+        Instant now = Instant.now();
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    void preUpdate() {
+        updatedAt = Instant.now();
+    }
 
     public Long getId() { return id; }
     public FriendGroup getGroup() { return group; }
     public void setGroup(FriendGroup group) { this.group = group; }
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
-    public String getText() { return text; }
-    public void setText(String text) { this.text = text; }
     public LocalDate getTargetDate() { return targetDate; }
     public void setTargetDate(LocalDate targetDate) { this.targetDate = targetDate; }
+    public String getText() { return text; }
+    public void setText(String text) { this.text = text; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

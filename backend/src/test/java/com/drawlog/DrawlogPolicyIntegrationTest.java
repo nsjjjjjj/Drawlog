@@ -9,9 +9,11 @@ import com.drawlog.chat.ChatMessageType;
 import com.drawlog.chat.ChatService;
 import com.drawlog.common.ApiException;
 import com.drawlog.common.ErrorCode;
+import com.drawlog.auth.RefreshToken;
+import com.drawlog.auth.RefreshTokenRepository;
+import com.drawlog.config.AppProperties;
 import com.drawlog.drawing.Drawing;
 import com.drawlog.drawing.DrawingController;
-import com.drawlog.drawing.DrawingRepository;
 import com.drawlog.drawing.DrawingService;
 import com.drawlog.feed.FeedService;
 import com.drawlog.group.FriendGroup;
@@ -25,9 +27,16 @@ import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
 import com.drawlog.user.UserService;
 import com.drawlog.user.UserStatus;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.Comparator;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,13 +52,32 @@ class DrawlogPolicyIntegrationTest {
     @Autowired TopicService topicService;
     @Autowired DrawingService drawingService;
     @Autowired FeedService feedService;
-    @Autowired DrawingRepository drawingRepository;
     @Autowired ChatService chatService;
     @Autowired UserService userService;
     @Autowired UserRepository userRepository;
     @Autowired TopicVoteRepository voteRepository;
     @Autowired DailyTopicRepository dailyTopicRepository;
     @Autowired ChatMessageRepository chatMessageRepository;
+    @Autowired RefreshTokenRepository refreshTokenRepository;
+    @Autowired AppProperties appProperties;
+
+    @BeforeEach
+    @AfterEach
+    void cleanUploads() throws IOException {
+        Path uploadDir = Path.of(appProperties.getUploadDir());
+        if (!Files.exists(uploadDir)) return;
+        try (var paths = Files.walk(uploadDir)) {
+            paths.sorted(Comparator.reverseOrder())
+                    .filter(path -> !path.equals(uploadDir))
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    });
+        }
+    }
 
     @Test
     void groupMaxMembersIsLimitedToTwelve() {
@@ -156,16 +184,32 @@ class DrawlogPolicyIntegrationTest {
     void drawingCanOnlyBeUpdatedBeforeItIsLockedAndDeleteApiIsAbsent() {
         User owner = user("draw-owner");
         FriendGroup group = groupService.createGroup(owner.getId(), "그림방", 6, "오늘 그림");
-        drawingService.submitToday(owner.getId(), group.getId(), image());
+        drawingService.submitToday(owner.getId(), group.getId(), strokeJson(), thumbnail());
 
         drawingService.lockDrawingsBefore(LocalDate.now().plusDays(1));
 
-        assertThatThrownBy(() -> drawingService.updateToday(owner.getId(), group.getId(), image()))
+        assertThatThrownBy(() -> drawingService.updateToday(owner.getId(), group.getId(), strokeJson(), thumbnail()))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo(ErrorCode.DRAWING_LOCKED);
         assertThat(Arrays.stream(DrawingController.class.getDeclaredMethods()).map(Method::getName).toList())
                 .doesNotContain("delete");
+    }
+
+    @Test
+    void drawingUpdateDeletesPreviousImageFile() {
+        User owner = user("draw-file-owner");
+        FriendGroup group = groupService.createGroup(owner.getId(), "그림파일방", 6, "오늘 그림");
+        Drawing first = drawingService.submitToday(owner.getId(), group.getId(), image("first.webp"));
+        Path firstFile = uploadedFile(first.getImagePath());
+
+        assertThat(firstFile).exists();
+
+        Drawing second = drawingService.updateToday(owner.getId(), group.getId(), image("second.webp"));
+        Path secondFile = uploadedFile(second.getImagePath());
+
+        assertThat(firstFile).doesNotExist();
+        assertThat(secondFile).exists();
     }
 
     @Test
@@ -175,56 +219,9 @@ class DrawlogPolicyIntegrationTest {
 
         assertThat(feedService.feed(owner.getId(), group.getId(), LocalDate.now()).feedLocked()).isTrue();
 
-        drawingService.submitToday(owner.getId(), group.getId(), image());
+        drawingService.submitToday(owner.getId(), group.getId(), strokeJson(), thumbnail());
 
         assertThat(feedService.feed(owner.getId(), group.getId(), LocalDate.now()).feedLocked()).isFalse();
-    }
-
-    @Test
-    void emptyFeedDateDoesNotCreateDailyTopic() {
-        User owner = user("empty-feed-owner");
-        FriendGroup group = groupService.createGroup(owner.getId(), "빈날방", 6, null);
-        LocalDate emptyDate = LocalDate.now().minusDays(3);
-
-        assertThat(dailyTopicRepository.findByGroupIdAndTopicDate(group.getId(), emptyDate)).isEmpty();
-
-        var feed = feedService.feed(owner.getId(), group.getId(), emptyDate);
-
-        assertThat(feed.dailyTopic()).isNull();
-        assertThat(feed.members()).hasSize(1);
-        assertThat(feed.members().get(0).drawing()).isNull();
-        assertThat(dailyTopicRepository.findByGroupIdAndTopicDate(group.getId(), emptyDate)).isEmpty();
-    }
-
-    @Test
-    void futureFeedDateIsRejectedAndDoesNotCreateDailyTopic() {
-        User owner = user("future-feed-owner");
-        FriendGroup group = groupService.createGroup(owner.getId(), "미래방", 6, null);
-        LocalDate future = LocalDate.now().plusDays(1);
-
-        assertThatThrownBy(() -> feedService.feed(owner.getId(), group.getId(), future))
-                .isInstanceOf(ApiException.class)
-                .extracting("code")
-                .isEqualTo(ErrorCode.BAD_REQUEST);
-        assertThat(dailyTopicRepository.findByGroupIdAndTopicDate(group.getId(), future)).isEmpty();
-    }
-
-    @Test
-    void feedDatesOnlyIncludeDatesThatHaveDrawings() {
-        User owner = user("record-date-owner");
-        FriendGroup group = groupService.createGroup(owner.getId(), "기록날방", 6, null);
-        LocalDate first = LocalDate.now().minusDays(7);
-        LocalDate empty = LocalDate.now().minusDays(6);
-        LocalDate second = LocalDate.now().minusDays(5);
-        saveDrawing(owner, group, first, "첫 기록");
-        DailyTopic emptyTopic = new DailyTopic();
-        emptyTopic.setGroup(group);
-        emptyTopic.setTopicDate(empty);
-        emptyTopic.setText("빈 날짜");
-        dailyTopicRepository.save(emptyTopic);
-        saveDrawing(owner, group, second, "둘 기록");
-
-        assertThat(feedService.dates(owner.getId(), group.getId()).dates()).contains(first, second).doesNotContain(empty);
     }
 
     @Test
@@ -233,7 +230,7 @@ class DrawlogPolicyIntegrationTest {
         FriendGroup group = groupService.createGroup(owner.getId(), "채팅방", 6, null);
 
         ChatDtos.ChatMessageResponse message = chatService.send(owner.getId(), group.getId(),
-                new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "안녕", null, null));
+                new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "안녕", null));
         chatService.delete(owner.getId(), group.getId(), message.id());
 
         assertThat(chatMessageRepository.findById(message.id())).get()
@@ -269,11 +266,48 @@ class DrawlogPolicyIntegrationTest {
     }
 
     @Test
+    void profileImageUpdateDeletesPreviousFile() {
+        User user = user("profile-update");
+
+        var first = userService.updateProfileImage(user.getId(), image("profile-a.webp"));
+        Path firstFile = uploadedFile(first.profileImageUrl());
+        assertThat(firstFile).exists();
+
+        var second = userService.updateProfileImage(user.getId(), image("profile-b.webp"));
+        Path secondFile = uploadedFile(second.profileImageUrl());
+
+        assertThat(firstFile).doesNotExist();
+        assertThat(secondFile).exists();
+    }
+
+    @Test
+    void profileImageDeleteClearsDbAndDeletesFile() {
+        User user = user("profile-delete");
+        var updated = userService.updateProfileImage(user.getId(), image("profile-delete.webp"));
+        Path profileFile = uploadedFile(updated.profileImageUrl());
+        assertThat(profileFile).exists();
+
+        var deleted = userService.deleteProfileImage(user.getId());
+
+        assertThat(deleted.profileImageUrl()).isNull();
+        assertThat(profileFile).doesNotExist();
+    }
+
+    @Test
     void accountDeletionIsSoftDeletion() {
         User user = user("delete-me");
+        var updated = userService.updateProfileImage(user.getId(), image("profile-withdraw.webp"));
+        Path profileFile = uploadedFile(updated.profileImageUrl());
+        RefreshToken token = new RefreshToken();
+        token.setUser(user);
+        token.setTokenHash("delete-token-" + System.nanoTime());
+        token.setExpiresAt(Instant.now().plusSeconds(60));
+        refreshTokenRepository.save(token);
 
         userService.deleteMe(user.getId());
 
+        assertThat(profileFile).doesNotExist();
+        assertThat(refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId())).isEmpty();
         assertThat(userRepository.findById(user.getId())).get()
                 .satisfies(deleted -> {
                     assertThat(deleted.getStatus()).isEqualTo(UserStatus.DELETED);
@@ -292,20 +326,20 @@ class DrawlogPolicyIntegrationTest {
     }
 
     private MockMultipartFile image() {
-        return new MockMultipartFile("image", "drawing.webp", "image/webp", new byte[] {1, 2, 3});
+        return image("drawing.webp");
     }
 
-    private void saveDrawing(User user, FriendGroup group, LocalDate date, String topicText) {
-        DailyTopic topic = new DailyTopic();
-        topic.setGroup(group);
-        topic.setTopicDate(date);
-        topic.setText(topicText);
-        dailyTopicRepository.save(topic);
-        Drawing drawing = new Drawing();
-        drawing.setUser(user);
-        drawing.setGroup(group);
-        drawing.setDailyTopic(topic);
-        drawing.setImagePath("/uploads/" + topicText + ".webp");
-        drawingRepository.save(drawing);
+    private MockMultipartFile image(String filename) {
+        return new MockMultipartFile("image", filename, "image/webp", new byte[] {1, 2, 3});
+    }
+
+    private Path uploadedFile(String imageUrl) {
+        String prefix = appProperties.getPublicUploadPath() + "/";
+        assertThat(imageUrl).startsWith(prefix);
+        return Path.of(appProperties.getUploadDir()).resolve(imageUrl.substring(prefix.length()));
+    }
+
+    private MockMultipartFile thumbnail() {
+        return new MockMultipartFile("thumbnail", "drawing.webp", "image/webp", new byte[] {1, 2, 3});
     }
 }

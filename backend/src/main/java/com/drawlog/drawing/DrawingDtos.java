@@ -1,20 +1,22 @@
 package com.drawlog.drawing;
 
 import java.time.Instant;
-import java.time.LocalDate;
 
 public class DrawingDtos {
     public record DrawingResponse(
             Long id,
-            String imageUrl,
+            String thumbnailUrl,
+            String strokeData,
             Long userId,
-            String username,
+            String nickname,
+            String profileImageUrl,
             Long groupId,
-            Long topicId,
+            Long dailyTopicId,
             String topicText,
-            Instant createdAt
+            Instant submittedAt,
+            Instant updatedAt,
+            Instant lockedAt
     ) {}
 
-    public record MemberDrawingResponse(Long userId, String username, boolean owner, DrawingResponse drawing) {}
-    public record FeedResponse(LocalDate date, Long topicId, String topicText, java.util.List<DrawingResponse> drawings, java.util.List<MemberDrawingResponse> members) {}
+    public record MyDrawingResponse(DrawingResponse drawing) {}
 }

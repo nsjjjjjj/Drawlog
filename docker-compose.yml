@@ -1,15 +1,14 @@
 services:
   db:
-    image: mariadb:11.4
+    image: postgres:16-alpine
     environment:
-      MARIADB_DATABASE: ${MARIADB_DATABASE:-drawlog}
-      MARIADB_USER: ${MARIADB_USER:-drawlog}
-      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-drawlog}
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-drawlog-root}
+      POSTGRES_DB: ${POSTGRES_DB:-drawlog}
+      POSTGRES_USER: ${POSTGRES_USER:-drawlog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drawlog}
     volumes:
-      - db_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-drawlog} -d ${POSTGRES_DB:-drawlog}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -17,13 +16,16 @@ services:
     build:
       context: ./backend
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mariadb://db:3306/${MARIADB_DATABASE:-drawlog}
-      SPRING_DATASOURCE_USERNAME: ${MARIADB_USER:-drawlog}
-      SPRING_DATASOURCE_PASSWORD: ${MARIADB_PASSWORD:-drawlog}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-drawlog}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-drawlog}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-drawlog}
       APP_JWT_SECRET: ${APP_JWT_SECRET:-drawlog-local-dev-secret-must-be-at-least-32-bytes}
+      APP_ACCESS_TOKEN_EXPIRATION_MS: ${APP_ACCESS_TOKEN_EXPIRATION_MS:-1800000}
+      APP_REFRESH_TOKEN_EXPIRATION_MS: ${APP_REFRESH_TOKEN_EXPIRATION_MS:-1209600000}
+      APP_COOKIE_SECURE: ${APP_COOKIE_SECURE:-false}
       APP_UPLOAD_DIR: /app/uploads
       APP_TIME_ZONE: ${APP_TIME_ZONE:-Asia/Seoul}
-      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:5173,http://localhost:8081,http://localhost,http://127.0.0.1:8081,http://192.168.*:8081,http://10.*:8081,http://172.*:8081}
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:5173,http://localhost:8081,http://localhost,http://127.0.0.1:8081,http://192.168.*:*,http://10.*:*,http://172.*:*,https://*.trycloudflare.com}
     depends_on:
       db:
         condition: service_healthy
@@ -47,5 +49,5 @@ services:
       - backend
 
 volumes:
-  db_data:
+  postgres_data:
   uploads:

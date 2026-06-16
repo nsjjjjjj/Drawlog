@@ -3,7 +3,7 @@ server:
 
 spring:
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mariadb://localhost:3306/drawlog}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/drawlog}
     username: ${SPRING_DATASOURCE_USERNAME:drawlog}
     password: ${SPRING_DATASOURCE_PASSWORD:drawlog}
   jpa:
@@ -12,6 +12,7 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
   servlet:
     multipart:
       max-file-size: ${APP_MAX_FILE_SIZE:5MB}
@@ -19,9 +20,12 @@ spring:
 
 app:
   jwt-secret: ${APP_JWT_SECRET:change-this-secret-to-a-long-random-value-please}
-  jwt-expiration-ms: ${APP_JWT_EXPIRATION_MS:604800000}
+  access-token-expiration-ms: ${APP_ACCESS_TOKEN_EXPIRATION_MS:1800000}
+  refresh-token-expiration-ms: ${APP_REFRESH_TOKEN_EXPIRATION_MS:1209600000}
+  refresh-cookie-name: ${APP_REFRESH_COOKIE_NAME:drawlog_refresh}
+  cookie-secure: ${APP_COOKIE_SECURE:false}
   upload-dir: ${APP_UPLOAD_DIR:/app/uploads}
   public-upload-path: /uploads
   max-image-bytes: ${APP_MAX_IMAGE_BYTES:5242880}
   time-zone: ${APP_TIME_ZONE:Asia/Seoul}
-  cors-allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:5173,http://localhost:8081,http://localhost,http://127.0.0.1:8081,http://192.168.*:8081,http://10.*:8081,http://172.*:8081}
+  cors-allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:5173,http://localhost:8081,http://localhost,http://127.0.0.1:8081,http://192.168.*:*,http://10.*:*,http://172.*:*,https://*.trycloudflare.com}

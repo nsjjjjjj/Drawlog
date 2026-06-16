@@ -26,13 +26,14 @@ public class DailyTopic {
     private FriendGroup group;
 
     @Column(nullable = false, name = "topic_date")
-    private LocalDate date;
+    private LocalDate topicDate;
 
     @Column(nullable = false, length = 120)
     private String text;
 
-    @Column(nullable = false)
-    private boolean fromSuggestion;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "selected_suggestion_id")
+    private TopicSuggestion selectedSuggestion;
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
@@ -40,11 +41,11 @@ public class DailyTopic {
     public Long getId() { return id; }
     public FriendGroup getGroup() { return group; }
     public void setGroup(FriendGroup group) { this.group = group; }
-    public LocalDate getDate() { return date; }
-    public void setDate(LocalDate date) { this.date = date; }
+    public LocalDate getTopicDate() { return topicDate; }
+    public void setTopicDate(LocalDate topicDate) { this.topicDate = topicDate; }
     public String getText() { return text; }
     public void setText(String text) { this.text = text; }
-    public boolean isFromSuggestion() { return fromSuggestion; }
-    public void setFromSuggestion(boolean fromSuggestion) { this.fromSuggestion = fromSuggestion; }
+    public TopicSuggestion getSelectedSuggestion() { return selectedSuggestion; }
+    public void setSelectedSuggestion(TopicSuggestion selectedSuggestion) { this.selectedSuggestion = selectedSuggestion; }
     public Instant getCreatedAt() { return createdAt; }
 }

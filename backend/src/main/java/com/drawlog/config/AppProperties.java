@@ -6,7 +6,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "app")
 public class AppProperties {
     private String jwtSecret;
-    private long jwtExpirationMs;
+    private long accessTokenExpirationMs;
+    private long refreshTokenExpirationMs;
+    private String refreshCookieName;
+    private boolean cookieSecure;
     private String uploadDir;
     private String publicUploadPath;
     private long maxImageBytes;
@@ -15,8 +18,14 @@ public class AppProperties {
 
     public String getJwtSecret() { return jwtSecret; }
     public void setJwtSecret(String jwtSecret) { this.jwtSecret = jwtSecret; }
-    public long getJwtExpirationMs() { return jwtExpirationMs; }
-    public void setJwtExpirationMs(long jwtExpirationMs) { this.jwtExpirationMs = jwtExpirationMs; }
+    public long getAccessTokenExpirationMs() { return accessTokenExpirationMs; }
+    public void setAccessTokenExpirationMs(long accessTokenExpirationMs) { this.accessTokenExpirationMs = accessTokenExpirationMs; }
+    public long getRefreshTokenExpirationMs() { return refreshTokenExpirationMs; }
+    public void setRefreshTokenExpirationMs(long refreshTokenExpirationMs) { this.refreshTokenExpirationMs = refreshTokenExpirationMs; }
+    public String getRefreshCookieName() { return refreshCookieName; }
+    public void setRefreshCookieName(String refreshCookieName) { this.refreshCookieName = refreshCookieName; }
+    public boolean isCookieSecure() { return cookieSecure; }
+    public void setCookieSecure(boolean cookieSecure) { this.cookieSecure = cookieSecure; }
     public String getUploadDir() { return uploadDir; }
     public void setUploadDir(String uploadDir) { this.uploadDir = uploadDir; }
     public String getPublicUploadPath() { return publicUploadPath; }

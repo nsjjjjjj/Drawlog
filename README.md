@@ -1,15 +1,18 @@
 # Drawlog
 
-친구 그룹 안에서 매일 하나의 주제를 정하고, 각자 웹 캔버스에 그림을 그려 날짜별 피드로 공유하는 MVP입니다.
+Drawlog는 친구 그룹 안에서 매일 하나의 그림 주제를 정하고, 각자 웹 캔버스에 그림을 그려 날짜별 피드와 그룹 채팅으로 공유하는 PWA 지향 MVP입니다.
 
 ## 기술 구조
 
 - Frontend: React + Vite + HTML Canvas
-- Backend: Spring Boot 3, Spring Security, JWT, Spring Data JPA
-- DB: MariaDB
+- Backend: Spring Boot 3, Spring Security, Spring Data JPA
+- Auth: JWT Access Token + Refresh Token
+- DB: PostgreSQL
 - Storage: 로컬 Docker volume `uploads`
 - Reverse Proxy: Nginx
 - Deploy: Docker Compose
+- External Access: Cloudflare Tunnel 연결 문서 제공
+- Architecture: 도메인별 패키지를 나눈 DDD-lite 구조
 
 ## 실행
 
@@ -20,145 +23,194 @@ docker compose up --build
 
 브라우저에서 `http://localhost:8081`로 접속합니다.
 
-같은 와이파이의 휴대폰에서 열 때는 PC의 내부 IP를 사용합니다.
+같은 와이파이의 휴대폰에서는 PC의 내부 IP를 사용합니다.
 
 ```bash
 ipconfig getifaddr en0
 ```
 
-예를 들어 IP가 `192.168.0.12`라면 휴대폰 브라우저에서 `http://192.168.0.12:8081`로 접속합니다. 다른 포트나 터널 도메인을 붙이면 `.env`의 `APP_CORS_ALLOWED_ORIGIN_PATTERNS`에 해당 Origin을 추가한 뒤 `docker compose up -d --build backend`를 실행합니다.
+예를 들어 IP가 `192.168.0.12`라면 휴대폰 브라우저에서 `http://192.168.0.12:8081`로 접속합니다. CORS 기본값은 `localhost`, `127.0.0.1`, `192.168.*`, `10.*`, `172.*`, `*.trycloudflare.com` 패턴을 포함합니다.
 
-처음 사용 흐름:
+MariaDB 시절의 Docker volume이 남아 있다면 PostgreSQL과 호환되지 않습니다. 기존 데이터를 버리고 새로 시작할 때만 아래 명령을 사용하세요.
 
-1. 회원가입
-2. 그룹 생성 또는 초대코드로 입장
-3. 오늘의 주제 확인
-4. 캔버스에 그림을 그리고 제출
-5. 날짜별 피드에서 같은 그룹 그림 확인
+```bash
+docker compose down -v
+docker compose up --build
+```
 
 ## 환경변수
 
-`.env.example`을 복사해서 사용합니다.
-
 | 변수 | 설명 | 기본값 |
 | --- | --- | --- |
-| `MARIADB_DATABASE` | MariaDB 데이터베이스 | `drawlog` |
-| `MARIADB_USER` | MariaDB 앱 사용자 | `drawlog` |
-| `MARIADB_PASSWORD` | MariaDB 앱 비밀번호 | `drawlog` |
-| `MARIADB_ROOT_PASSWORD` | MariaDB root 비밀번호 | `drawlog-root` |
+| `POSTGRES_DB` | PostgreSQL 데이터베이스 | `drawlog` |
+| `POSTGRES_USER` | PostgreSQL 앱 사용자 | `drawlog` |
+| `POSTGRES_PASSWORD` | PostgreSQL 비밀번호 | `drawlog` |
 | `APP_JWT_SECRET` | JWT 서명 키, 32바이트 이상 권장 | 로컬 개발용 값 |
-| `APP_TIME_ZONE` | 주제 선정 기준 시간대 | `Asia/Seoul` |
-| `APP_CORS_ALLOWED_ORIGIN_PATTERNS` | 브라우저 API 요청을 허용할 Origin 패턴, 모바일 로컬 접속용 사설 IP 포함 | `localhost`, `127.0.0.1`, `192.168.*:8081`, `10.*:8081`, `172.*:8081` |
+| `APP_ACCESS_TOKEN_EXPIRATION_MS` | Access Token 만료 시간 | `1800000` |
+| `APP_REFRESH_TOKEN_EXPIRATION_MS` | Refresh Token 만료 시간 | `1209600000` |
+| `APP_COOKIE_SECURE` | Refresh Token 쿠키 Secure 여부 | `false` |
+| `APP_TIME_ZONE` | 스케줄 기준 시간대 | `Asia/Seoul` |
+| `APP_CORS_ALLOWED_ORIGIN_PATTERNS` | 허용 Origin 패턴 | `.env.example` 참고 |
 
-Spring Boot에서 추가로 사용하는 값:
+## 인증 구조
 
-- `APP_UPLOAD_DIR`: 업로드 저장 경로, Compose에서는 `/app/uploads`
-- `APP_MAX_FILE_SIZE`: multipart 파일 제한, 기본 `5MB`
-- `APP_MAX_REQUEST_SIZE`: multipart 요청 제한, 기본 `6MB`
-- `APP_MAX_IMAGE_BYTES`: 서비스 레벨 이미지 크기 제한, 기본 `5242880`
+- Access Token은 30분 동안 유효하고 JSON 응답 body로 내려갑니다.
+- Refresh Token은 14일 동안 유효하고 HttpOnly 쿠키로만 저장됩니다.
+- `POST /api/auth/refresh`는 쿠키의 Refresh Token으로 새 Access Token을 발급합니다.
+- `POST /api/auth/logout`은 Refresh Token을 무효화하고 쿠키를 삭제합니다.
+- 운영 HTTPS에서는 `APP_COOKIE_SECURE=true`로 설정하세요.
+
+## 그림 저장 구조
+
+- 원본 그림은 PostgreSQL `drawings.stroke_data` JSONB 컬럼에 Stroke JSON으로 저장됩니다.
+- 피드 미리보기는 WebP 썸네일 파일로 변환해 `uploads` volume에 저장합니다.
+- 그림 제출/수정 API는 `multipart/form-data`를 사용합니다.
+  - `strokeJson`: version/canvas/layers가 포함된 JSON 문자열
+  - `thumbnail`: WebP 파일
+- 트레이싱 이미지는 브라우저 메모리에서만 사용하고 서버에 저장하지 않습니다.
+- `StorageService` 인터페이스는 유지되어 있어 추후 Google Cloud Storage 구현체로 교체할 수 있습니다.
+- 프로필 사진 변경/삭제, 그림 수정, 회원탈퇴 시 기존 로컬 파일을 정리합니다. 파일 삭제 실패는 사용자 요청을 막지 않지만 백엔드 WARN 로그와 실패 목록에 남겨 운영자가 확인할 수 있습니다.
+
+## 주요 정책
+
+- 사용자는 여러 그룹에 가입할 수 있습니다.
+- 그룹 최대 인원은 2~12명이며 서버에서도 검증합니다.
+- 그룹장은 `memberships.role = OWNER`로 판단하며 `friend_groups.owner_id`는 사용하지 않습니다.
+- 그룹명 변경, 멤버 추방, 방장 위임은 OWNER만 가능합니다.
+- 방장은 다른 멤버에게 위임해야 탈퇴할 수 있습니다.
+- 마지막 멤버 퇴장 시 그룹 데이터를 자동 삭제하는 정책은 제거했습니다.
+- 초대코드와 `/invite/{inviteCode}` 초대링크를 모두 지원합니다.
+- 초대코드 재발급 API는 제거했습니다.
+- 주제 제안은 하루 1인 1개입니다.
+- 주제는 등록 즉시 투표 가능하고, 1표라도 받으면 수정/삭제할 수 없습니다.
+- 투표는 1인 1표이며 재투표 시 기존 vote row가 다른 후보를 가리키도록 바뀝니다.
+- 매일 00:00에 최다 득표 주제를 선정하고, 동률 또는 0표 후보는 랜덤으로 고릅니다.
+- 후보가 없으면 시스템 기본 주제 중 랜덤으로 선정합니다.
+- 스케줄러가 실패해도 오늘 주제 조회 시 없으면 자동 생성합니다.
+- 하루 1인 1그림이며 여러 번 수정 가능하지만 최종본 1개만 유지합니다.
+- 그림은 당일만 수정 가능하고 다음날 00:00 이후 잠깁니다.
+- 그림 삭제 API는 제거했습니다.
+- 미제출자는 당일 피드가 잠기고, 제출자는 당일 피드를 바로 볼 수 있습니다.
+- 다음날이 되면 피드가 공개됩니다.
+- 채팅은 REST API + polling 방식입니다.
+- 그림 인용 댓글은 별도 댓글 테이블 없이 `DRAWING_QUOTE` 타입의 채팅 메시지로 처리합니다.
+- 채팅 삭제는 하드 삭제가 아니라 `deleted_at` 기록입니다.
+- 계정 삭제는 소프트 삭제이며 이메일은 `deleted_user_{id}` 형태로 익명화됩니다.
 
 ## API
 
-인증이 필요한 API는 `Authorization: Bearer <token>` 헤더를 사용합니다.
+성공 응답은 데이터만 반환합니다. 에러 응답은 아래 형태입니다.
+
+```json
+{
+  "code": "GROUP_FULL",
+  "message": "그룹 최대 인원을 초과했습니다."
+}
+```
+
+### Auth
 
 | Method | Path | 설명 |
 | --- | --- | --- |
 | `POST` | `/api/auth/signup` | 회원가입 |
-| `POST` | `/api/auth/login` | 로그인 및 JWT 발급 |
-| `GET` | `/api/groups` | 내가 속한 그룹 목록과 멤버 조회 |
-| `POST` | `/api/groups` | 그룹 생성, 생성자는 자동 멤버/그룹장 등록, 첫 주제 선택 가능 |
-| `POST` | `/api/groups/join` | 초대코드로 그룹 입장 |
-| `PATCH` | `/api/groups/{id}` | 그룹장 전용 그룹명 변경 |
-| `POST` | `/api/groups/{id}/invite-code` | 그룹장 전용 초대코드 재발급 |
-| `DELETE` | `/api/groups/{id}/members/{userId}` | 그룹장 전용 멤버 내보내기 |
-| `DELETE` | `/api/groups/{id}/membership` | 그룹 나가기, 마지막 멤버가 나가면 그룹 데이터 삭제 |
-| `GET` | `/api/topics/today?groupId={id}` | 선택 그룹의 오늘 주제 조회 |
-| `POST` | `/api/topics/suggestions` | 내일 주제 제안 |
-| `GET` | `/api/topics/suggestions/mine?groupId={id}` | 내 내일 주제 제안 조회 |
-| `PUT` | `/api/topics/suggestions/{id}` | 내 주제 제안 수정 |
-| `DELETE` | `/api/topics/suggestions/{id}` | 내 주제 제안 삭제 |
-| `POST` | `/api/drawings` | `multipart/form-data`의 `groupId`, `file` 필드로 PNG/WebP 업로드 |
-| `DELETE` | `/api/drawings/{id}` | 내 그림 삭제 |
-| `GET` | `/api/feed?groupId={id}&date=YYYY-MM-DD` | 같은 그룹의 날짜별 그림 피드 조회 |
-| `GET` | `/api/groups/{id}/messages` | 같은 그룹의 최근 채팅 메시지 조회 |
-| `POST` | `/api/groups/{id}/messages` | 일반 채팅, 그림 인용 채팅, 메시지 답장 작성 |
+| `POST` | `/api/auth/login` | 로그인 |
+| `POST` | `/api/auth/refresh` | Refresh Cookie로 Access Token 재발급 |
+| `POST` | `/api/auth/logout` | Refresh Token 무효화 |
+| `GET` | `/api/auth/me` | 내 정보 |
 
-요청 예시:
+### User
 
-```bash
-curl -X POST http://localhost:8081/api/auth/signup \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"jun","email":"jun@example.com","password":"password1"}'
-```
+| Method | Path | 설명 |
+| --- | --- | --- |
+| `PATCH` | `/api/users/me/nickname` | 닉네임 변경 |
+| `PATCH` | `/api/users/me/profile-image` | 프로필 이미지 변경 |
+| `DELETE` | `/api/users/me` | 계정 소프트 삭제 |
 
-## 서비스 동작
+### Group
 
-- 사용자는 여러 그룹에 가입할 수 있고 로그인 후 그룹 선택 화면에서 작업할 그룹을 고릅니다.
-- 그룹 생성자는 그룹장이 되며 그룹명 변경, 초대코드 재발급, 멤버 내보내기를 할 수 있습니다.
-- 그룹 생성 시 첫 주제를 직접 입력할 수 있고, 비우면 시스템 기본 주제가 자동 선택됩니다.
-- 그룹장이 나가면 남은 멤버 중 가장 먼저 들어온 멤버에게 그룹장이 넘어갑니다.
-- 마지막 멤버가 그룹을 나가면 그룹의 주제, 제안, 그림 DB 데이터와 로컬 이미지 파일이 삭제됩니다.
-- 매일 00시(`APP_TIME_ZONE` 기준)에 그룹별 주제를 선정합니다.
-- 자정 스케줄이 실행되지 못해도 `GET /api/topics/today` 또는 피드 조회 시 해당 날짜 주제를 자동 생성합니다.
-- 주제 제안은 항상 다음 날 날짜로 저장됩니다.
-- 그룹에 해당 날짜 제안이 있으면 그중 랜덤 선택, 없으면 시스템 기본 주제 목록에서 랜덤 선택합니다.
-- 피드는 인증된 사용자가 속한 기본 그룹의 그림만 반환합니다.
-- 그룹 채팅은 같은 그룹 멤버만 조회/작성할 수 있습니다.
-- 그림 아래의 인용 버튼으로 특정 그림을 채팅에 붙일 수 있고, 메시지의 답하기 버튼으로 대화 문맥을 이어갈 수 있습니다.
+| Method | Path | 설명 |
+| --- | --- | --- |
+| `POST` | `/api/groups` | 그룹 생성, 첫 주제 선택 가능 |
+| `GET` | `/api/groups` | 내 그룹 목록 |
+| `GET` | `/api/groups/{groupId}` | 그룹 상세 |
+| `PATCH` | `/api/groups/{groupId}` | OWNER 그룹명 변경 |
+| `POST` | `/api/groups/join` | 초대코드 입장 |
+| `POST` | `/api/groups/{groupId}/leave` | 그룹 탈퇴 |
+| `POST` | `/api/groups/{groupId}/transfer-owner` | 방장 위임 |
+| `DELETE` | `/api/groups/{groupId}/members/{userId}` | 멤버 추방 |
+
+### Topic
+
+| Method | Path | 설명 |
+| --- | --- | --- |
+| `GET` | `/api/groups/{groupId}/topics/today` | 오늘 주제 |
+| `GET` | `/api/groups/{groupId}/topics/suggestions?targetDate=YYYY-MM-DD` | 주제 후보 |
+| `POST` | `/api/groups/{groupId}/topics/suggestions` | 주제 제안 |
+| `PATCH` | `/api/groups/{groupId}/topics/suggestions/{suggestionId}` | 주제 수정 |
+| `DELETE` | `/api/groups/{groupId}/topics/suggestions/{suggestionId}` | 주제 삭제 |
+| `POST` | `/api/groups/{groupId}/topics/suggestions/{suggestionId}/vote` | 투표/재투표 |
+| `GET` | `/api/groups/{groupId}/topics/my-vote?targetDate=YYYY-MM-DD` | 내 투표 |
+
+### Drawing / Feed / Chat / Notification
+
+| Method | Path | 설명 |
+| --- | --- | --- |
+| `POST` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 제출, multipart `image` |
+| `PUT` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 수정, multipart `image` |
+| `GET` | `/api/groups/{groupId}/feed?date=YYYY-MM-DD` | 날짜별 피드 |
+| `GET` | `/api/groups/{groupId}/chats?cursor=...&size=30` | 채팅 조회 |
+| `POST` | `/api/groups/{groupId}/chats` | 채팅 작성 |
+| `DELETE` | `/api/groups/{groupId}/chats/{messageId}` | 채팅 소프트 삭제 |
+| `GET` | `/api/notifications` | 알림 목록 |
+| `PATCH` | `/api/notifications/read-all` | 전체 읽음 |
+| `GET` | `/api/notification-settings` | 알림 설정 |
+| `PATCH` | `/api/notification-settings` | 전체 알림 ON/OFF |
+| `PATCH` | `/api/groups/{groupId}/notification-setting` | 그룹 알림 ON/OFF |
+
+## Scheduler
+
+`APP_TIME_ZONE` 기준으로 동작합니다.
+
+- 23:50: 투표 종료 시점
+- 00:00: DailyTopic 선정 및 지난 그림 잠금
+- 12:00: 오늘 그림을 안 그린 사람에게 알림 생성
+- 23:00: 내일 주제 투표를 안 한 사람에게 알림 생성
 
 ## 저장소 구조
 
 ```text
-.
-├── backend
-│   └── src/main/java/com/drawlog
-│       ├── auth
-│       ├── chat
-│       ├── config
-│       ├── drawing
-│       ├── group
-│       ├── storage
-│       ├── topic
-│       └── user
-├── frontend
-│   └── src
-├── nginx
-├── docs
-└── docker-compose.yml
+backend/src/main/java/com/drawlog
+├── auth
+├── user
+├── group
+├── topic
+├── drawing
+├── feed
+├── chat
+├── notification
+├── storage
+├── common
+└── config
 ```
-
-## StorageService 교체
-
-업로드 저장은 `backend/src/main/java/com/drawlog/storage/StorageService.java` 인터페이스 뒤에 있습니다. 현재 구현은 `LocalStorageService`이며 로컬 Docker volume에 파일을 저장하고 `/uploads/...` URL을 반환합니다.
-
-Google Cloud Storage로 교체할 때는 새 구현체를 만들고 `storeImage(MultipartFile file)`에서 다음만 유지하면 됩니다.
-
-- PNG/WebP 및 크기 검증
-- 객체 저장
-- DB에 저장할 공개 또는 서명 이미지 URL 반환
-
-## 보안
-
-- `/api/auth/signup`, `/api/auth/login`, `/uploads/**`를 제외한 모든 API는 JWT가 필요합니다.
-- 업로드는 MIME type `image/png`, `image/webp`와 확장자 `.png`, `.webp`를 모두 검증합니다.
-- Nginx `client_max_body_size`와 Spring multipart 제한이 업로드 크기를 제한합니다.
-- 운영에서는 반드시 강한 `APP_JWT_SECRET`과 별도 DB 비밀번호를 사용하세요.
 
 ## 테스트
 
-백엔드 통합 테스트는 그룹 생성, 첫 주제 지정, 그룹장 권한, 멤버 내보내기, 방장 승계, 마지막 멤버 퇴장 시 그룹 삭제, 그룹 채팅의 인용/답장/권한 흐름을 검증합니다. Docker 백엔드 이미지 빌드 중에도 테스트가 실행됩니다.
+Docker 백엔드 이미지 빌드 중 `gradle clean test bootJar`가 실행됩니다.
 
 ```bash
 docker compose build backend
 ```
 
-JDK/Gradle 환경에서 직접 실행할 수도 있습니다.
+프론트 빌드는 아래처럼 확인합니다.
 
 ```bash
-cd backend
-gradle test
+cd frontend
+npm ci
+npm run build
 ```
 
-## cloudflared
+현재 테스트는 그룹 최대 12명, 방장 위임 없이 탈퇴 불가, 1인 1주제, 투표 잠금, 재투표, DailyTopic 선정, 그림 잠금, 피드 잠금, 채팅 소프트 삭제, 계정 소프트 삭제, 프로필/그림 파일 교체 시 이전 파일 삭제, 프로필 삭제 시 파일 삭제, 회원탈퇴 시 프로필 파일 삭제와 Refresh Token 무효화를 검증합니다.
 
-MVP Compose에는 포함하지 않았습니다. 추가 방법은 [docs/cloudflared.md](docs/cloudflared.md)를 참고하세요.
+## Cloudflare Tunnel
+
+MVP Compose에는 `cloudflared`를 포함하지 않았습니다. 외부 접속이 필요하면 [docs/cloudflared.md](docs/cloudflared.md)를 참고해 `nginx:80`으로 터널을 연결하세요.

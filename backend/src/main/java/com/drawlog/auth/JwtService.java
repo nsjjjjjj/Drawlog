@@ -19,9 +19,9 @@ public class JwtService {
         this.key = Keys.hmacShaKeyFor(properties.getJwtSecret().getBytes(StandardCharsets.UTF_8));
     }
 
-    public String createToken(Long userId, String email) {
+    public String createAccessToken(Long userId, String email) {
         Date now = new Date();
-        Date expiresAt = new Date(now.getTime() + properties.getJwtExpirationMs());
+        Date expiresAt = new Date(now.getTime() + properties.getAccessTokenExpirationMs());
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("email", email)

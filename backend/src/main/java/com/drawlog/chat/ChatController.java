@@ -2,13 +2,14 @@ package com.drawlog.chat;
 
 import com.drawlog.auth.CurrentUser;
 import jakarta.validation.Valid;
-import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -20,15 +21,17 @@ public class ChatController {
         this.chatService = chatService;
     }
 
-    @GetMapping("/api/groups/{groupId}/messages")
-    public List<ChatDtos.ChatMessageResponse> messages(
+    @GetMapping("/api/groups/{groupId}/chats")
+    public ChatDtos.ChatPageResponse messages(
             @AuthenticationPrincipal CurrentUser user,
-            @PathVariable Long groupId
+            @PathVariable Long groupId,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false) Integer size
     ) {
-        return chatService.messages(user.id(), groupId);
+        return chatService.messages(user.id(), groupId, cursor, size == null ? 30 : size);
     }
 
-    @PostMapping("/api/groups/{groupId}/messages")
+    @PostMapping("/api/groups/{groupId}/chats")
     @ResponseStatus(HttpStatus.CREATED)
     public ChatDtos.ChatMessageResponse send(
             @AuthenticationPrincipal CurrentUser user,
@@ -36,5 +39,15 @@ public class ChatController {
             @Valid @RequestBody ChatDtos.SendMessageRequest request
     ) {
         return chatService.send(user.id(), groupId, request);
+    }
+
+    @DeleteMapping("/api/groups/{groupId}/chats/{messageId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long groupId,
+            @PathVariable Long messageId
+    ) {
+        chatService.delete(user.id(), groupId, messageId);
     }
 }

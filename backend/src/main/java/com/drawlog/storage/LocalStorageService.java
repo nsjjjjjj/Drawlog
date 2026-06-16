@@ -5,9 +5,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
 import java.util.Locale;
+import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,8 +20,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class LocalStorageService implements StorageService {
-    private static final Set<String> ALLOWED_TYPES = Set.of("image/png", "image/webp");
+    private static final Logger log = LoggerFactory.getLogger(LocalStorageService.class);
+    private static final Set<String> ALLOWED_TYPES = Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
     private final AppProperties properties;
+    private final Queue<String> failedDeletes = new ConcurrentLinkedQueue<>();
 
     public LocalStorageService(AppProperties properties) {
         this.properties = properties;
@@ -51,9 +58,14 @@ public class LocalStorageService implements StorageService {
         }
         try {
             Files.deleteIfExists(target);
-        } catch (IOException ignored) {
-            // File cleanup should not block database cleanup.
+        } catch (IOException e) {
+            failedDeletes.add(imageUrl);
+            log.warn("Failed to delete stored image. imageUrl={}, target={}", imageUrl, target, e);
         }
+    }
+
+    public List<String> failedDeletes() {
+        return List.copyOf(failedDeletes);
     }
 
     private void validate(MultipartFile file) {

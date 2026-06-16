@@ -1,22 +1,25 @@
 package com.drawlog.drawing;
 
+import com.drawlog.common.ApiException;
+import com.drawlog.common.ErrorCode;
 import com.drawlog.config.AppProperties;
 import com.drawlog.group.FriendGroup;
 import com.drawlog.group.GroupService;
+import com.drawlog.notification.NotificationService;
 import com.drawlog.storage.StorageService;
+import com.drawlog.storage.StoredFile;
 import com.drawlog.topic.DailyTopic;
 import com.drawlog.topic.TopicService;
 import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.List;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class DrawingService {
@@ -26,83 +29,110 @@ public class DrawingService {
     private final TopicService topicService;
     private final StorageService storageService;
     private final AppProperties properties;
+    private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
 
     public DrawingService(DrawingRepository drawingRepository, UserRepository userRepository, GroupService groupService,
-                          TopicService topicService, StorageService storageService, AppProperties properties) {
+                          TopicService topicService, StorageService storageService, AppProperties properties,
+                          ObjectMapper objectMapper, NotificationService notificationService) {
         this.drawingRepository = drawingRepository;
         this.userRepository = userRepository;
         this.groupService = groupService;
         this.topicService = topicService;
         this.storageService = storageService;
         this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.notificationService = notificationService;
     }
 
     @Transactional
-    public Drawing submit(Long userId, Long groupId, MultipartFile file) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "사용자를 찾을 수 없습니다."));
+    public Drawing submitToday(Long userId, Long groupId, String strokeJson, MultipartFile thumbnail) {
+        User user = user(userId);
         FriendGroup group = groupService.requireGroup(userId, groupId);
-        DailyTopic topic = topicService.ensureDailyTopic(group, LocalDate.now(zone()));
-        String imageUrl = storageService.storeImage(file).imageUrl();
-
-        Drawing drawing = drawingRepository.findByGroupIdAndTopicIdAndUserId(group.getId(), topic.getId(), userId)
-                .orElseGet(() -> {
-                    Drawing newDrawing = new Drawing();
-                    newDrawing.setUser(user);
-                    newDrawing.setGroup(group);
-                    newDrawing.setTopic(topic);
-                    return newDrawing;
-                });
-        String oldImageUrl = drawing.getImageUrl();
-        drawing.setImageUrl(imageUrl);
-        Drawing saved = drawingRepository.save(drawing);
-        if (oldImageUrl != null) {
-            storageService.deleteImage(oldImageUrl);
+        DailyTopic topic = topicService.ensureDailyTopic(userId, groupId, today());
+        if (drawingRepository.findByGroupIdAndDailyTopicIdAndUserId(group.getId(), topic.getId(), userId).isPresent()) {
+            throw new ApiException(ErrorCode.DRAWING_ALREADY_SUBMITTED);
         }
+        Drawing drawing = new Drawing();
+        drawing.setUser(user);
+        drawing.setGroup(group);
+        drawing.setDailyTopic(topic);
+        applyPayload(drawing, strokeJson, thumbnail);
+        Drawing saved = drawingRepository.save(drawing);
+        notificationService.notifyDrawingUploaded(saved);
         return saved;
     }
 
     @Transactional
-    public DrawingDtos.FeedResponse feed(Long userId, Long groupId, LocalDate date) {
+    public Drawing updateToday(Long userId, Long groupId, String strokeJson, MultipartFile thumbnail) {
         FriendGroup group = groupService.requireGroup(userId, groupId);
-        DailyTopic topic = topicService.ensureDailyTopic(group, date);
-        Instant start = date.atStartOfDay(zone()).toInstant();
-        Instant end = date.plusDays(1).atStartOfDay(zone()).toInstant();
-        List<DrawingDtos.DrawingResponse> drawings = drawingRepository
-                .findByGroupIdAndCreatedAtBetweenOrderByCreatedAtDesc(group.getId(), start, end)
-                .stream()
-                .map(this::toResponse)
-                .toList();
-        java.util.Map<Long, DrawingDtos.DrawingResponse> drawingByUser = drawings.stream()
-                .collect(java.util.stream.Collectors.toMap(DrawingDtos.DrawingResponse::userId, drawing -> drawing, (first, second) -> first));
-        List<DrawingDtos.MemberDrawingResponse> members = groupService.members(userId, group.getId()).stream()
-                .map(member -> new DrawingDtos.MemberDrawingResponse(member.userId(), member.username(), member.owner(), drawingByUser.get(member.userId())))
-                .toList();
-        return new DrawingDtos.FeedResponse(date, topic.getId(), topic.getText(), drawings, members);
+        DailyTopic topic = topicService.ensureDailyTopic(userId, groupId, today());
+        Drawing drawing = drawingRepository.findByGroupIdAndDailyTopicIdAndUserId(group.getId(), topic.getId(), userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.DRAWING_NOT_FOUND));
+        ensureEditableToday(drawing);
+        String oldThumbnail = drawing.getThumbnailPath();
+        applyPayload(drawing, strokeJson, thumbnail);
+        Drawing saved = drawingRepository.save(drawing);
+        if (oldThumbnail != null) storageService.deleteImage(oldThumbnail);
+        return saved;
     }
 
     @Transactional
-    public void delete(Long userId, Long drawingId) {
-        Drawing drawing = drawingRepository.findById(drawingId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "그림을 찾을 수 없습니다."));
-        if (!drawing.getUser().getId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "내 그림만 삭제할 수 있습니다.");
-        }
-        storageService.deleteImage(drawing.getImageUrl());
-        drawingRepository.delete(drawing);
+    public void lockDrawingsBefore(LocalDate date) {
+        Instant now = Instant.now();
+        drawingRepository.findByDailyTopicTopicDateBeforeAndLockedAtIsNull(date).forEach(drawing -> drawing.setLockedAt(now));
     }
 
     public DrawingDtos.DrawingResponse toResponse(Drawing drawing) {
+        if (drawing == null) return null;
         return new DrawingDtos.DrawingResponse(
                 drawing.getId(),
-                drawing.getImageUrl(),
+                drawing.getThumbnailPath(),
+                drawing.getStrokeData(),
                 drawing.getUser().getId(),
-                drawing.getUser().getUsername(),
+                drawing.getUser().getNickname(),
+                drawing.getUser().getProfileImageUrl(),
                 drawing.getGroup().getId(),
-                drawing.getTopic().getId(),
-                drawing.getTopic().getText(),
-                drawing.getCreatedAt()
+                drawing.getDailyTopic().getId(),
+                drawing.getDailyTopic().getText(),
+                drawing.getSubmittedAt(),
+                drawing.getUpdatedAt(),
+                drawing.getLockedAt()
         );
+    }
+
+    private void applyPayload(Drawing drawing, String strokeJson, MultipartFile thumbnail) {
+        validateStrokeJson(strokeJson);
+        StoredFile storedFile = storageService.storeImage(thumbnail);
+        drawing.setStrokeData(strokeJson);
+        drawing.setThumbnailPath(storedFile.imageUrl());
+    }
+
+    private void validateStrokeJson(String strokeJson) {
+        try {
+            JsonNode root = objectMapper.readTree(strokeJson);
+            if (!root.hasNonNull("version") || !root.has("canvas") || !root.has("layers")) {
+                throw new ApiException(ErrorCode.BAD_REQUEST, "strokeJson에는 version, canvas, layers가 필요합니다.");
+            }
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "strokeJson 형식이 올바르지 않습니다.");
+        }
+    }
+
+    private void ensureEditableToday(Drawing drawing) {
+        if (drawing.getLockedAt() != null || !drawing.getDailyTopic().getTopicDate().equals(today())) {
+            throw new ApiException(ErrorCode.DRAWING_LOCKED);
+        }
+    }
+
+    private User user(Long userId) {
+        return userRepository.findById(userId).orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(zone());
     }
 
     private ZoneId zone() {

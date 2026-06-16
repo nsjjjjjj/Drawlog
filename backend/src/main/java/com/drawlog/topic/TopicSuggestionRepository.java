@@ -6,7 +6,6 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TopicSuggestionRepository extends JpaRepository<TopicSuggestion, Long> {
-    List<TopicSuggestion> findByGroupIdAndTargetDate(Long groupId, LocalDate targetDate);
+    List<TopicSuggestion> findByGroupIdAndTargetDateOrderByCreatedAtAsc(Long groupId, LocalDate targetDate);
     Optional<TopicSuggestion> findByGroupIdAndUserIdAndTargetDate(Long groupId, Long userId, LocalDate targetDate);
-    void deleteByGroupId(Long groupId);
 }
