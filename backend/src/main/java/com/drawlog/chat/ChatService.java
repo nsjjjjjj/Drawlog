@@ -30,8 +30,12 @@ public class ChatService {
     @Transactional(readOnly = true)
     public List<ChatDtos.ChatMessageResponse> messages(Long userId, Long groupId) {
         FriendGroup group = groupService.requireGroup(userId, groupId);
-        return chatMessageRepository.findTop100ByGroupIdOrderByCreatedAtAsc(group.getId())
-                .stream()
+        int pageSize = Math.min(Math.max(size, 1), 50);
+        List<ChatMessage> rows = (cursor == null
+                ? chatMessageRepository.findByGroupIdAndDeletedAtIsNullOrderByCreatedAtDesc(group.getId(), PageRequest.of(0, pageSize))
+                : chatMessageRepository.findByGroupIdAndDeletedAtIsNullAndIdLessThanOrderByCreatedAtDesc(group.getId(), cursor, PageRequest.of(0, pageSize)));
+        List<ChatDtos.ChatMessageResponse> messages = rows.stream()
+                .sorted(Comparator.comparing(ChatMessage::getCreatedAt).thenComparing(ChatMessage::getId))
                 .map(this::toResponse)
                 .toList();
     }
@@ -111,6 +115,8 @@ public class ChatService {
                 message.getSender().getProfileImageUrl(),
                 message.getType(),
                 message.getContent(),
+                drawing == null ? null : drawing.getId(),
+                message.getDeletedAt(),
                 message.getCreatedAt(),
                 quote,
                 replyTo

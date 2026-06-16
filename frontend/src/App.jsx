@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Bell,
   Brush,
+  CalendarDays,
+  Check,
   ChevronLeft,
-  Copy,
+  ChevronRight,
+  Circle,
   Edit3,
   Eraser,
-  Eye,
-  CalendarDays,
-  ChevronRight,
+  Highlighter,
+  KeyRound,
+  Lock,
   LogOut,
   MessageCircle,
   Plus,
@@ -15,6 +19,7 @@ import {
   Redo2,
   Reply,
   Save,
+  Settings,
   Trash2,
   Undo2,
   Users,
@@ -106,88 +111,23 @@ function quoteImageUrl(quote) {
   return quote?.imageUrl || quote?.imagePath || quote?.thumbnailUrl || '';
 }
 
-function messagePreview(content, limit = 72) {
-  const text = (content || '').trim().replace(/\s+/g, ' ');
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit - 1)}…`;
-}
-
-function imageFromFile(file) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const url = URL.createObjectURL(file);
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('이미지를 읽지 못했습니다.'));
-    };
-    image.src = url;
-  });
-}
-
-async function resizeProfileImage(file) {
-  if (!file?.type?.startsWith('image/')) return file;
-  const image = await imageFromFile(file);
-  const sourceWidth = image.naturalWidth || image.width;
-  const sourceHeight = image.naturalHeight || image.height;
-  if (!sourceWidth || !sourceHeight) return file;
-
-  const outputSize = 768;
-  const sourceSize = Math.min(sourceWidth, sourceHeight);
-  const sourceX = Math.max(0, (sourceWidth - sourceSize) / 2);
-  const sourceY = Math.max(0, (sourceHeight - sourceSize) / 2);
-  const canvas = document.createElement('canvas');
-  canvas.width = outputSize;
-  canvas.height = outputSize;
-  const context = canvas.getContext('2d');
-  if (!context) return file;
-  context.fillStyle = '#ffffff';
-  context.fillRect(0, 0, outputSize, outputSize);
-  context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, outputSize, outputSize);
-
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
-  if (!blob) return file;
-  return new File([blob], 'profile.webp', { type: 'image/webp' });
-}
-
-function DateNavigator({ date, onChange, selectableDates = [] }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [visibleMonth, setVisibleMonth] = useState(monthKey(date));
-  const today = todayString();
-  const availableDates = useMemo(() => (
-    Array.from(new Set(selectableDates))
-      .filter((recordDate) => recordDate <= today)
-      .sort()
-  ), [selectableDates, today]);
-  const recordDateSet = useMemo(() => new Set(availableDates), [availableDates]);
-  const previousDate = useMemo(() => {
-    const before = availableDates.filter((recordDate) => recordDate < date);
-    return before.length ? before[before.length - 1] : null;
-  }, [availableDates, date]);
-  const nextDate = useMemo(() => availableDates.find((recordDate) => recordDate > date) || null, [availableDates, date]);
-
-  useEffect(() => {
-    setVisibleMonth(monthKey(date));
-  }, [date]);
-
-  function changeDate(nextRecordDate) {
-    if (!nextRecordDate || !recordDateSet.has(nextRecordDate)) return;
-    onChange(nextRecordDate);
-  }
-
-  function selectFromPicker(nextDate) {
-    if (!nextDate || nextDate > today || !recordDateSet.has(nextDate)) return;
-    onChange(nextDate);
-    setPickerOpen(false);
+function DateNavigator({ date, onChange }) {
+  const inputRef = useRef(null);
+  function openPicker() {
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+    } else {
+      input.click();
+    }
   }
 
   return (
     <div className="date-nav">
       <button title="이전 날짜" onClick={() => onChange(shiftDate(date, -1))}><ChevronLeft size={18} /></button>
-      <button className="date-display" onClick={openCalendar}>
+      <button className="date-display" onClick={openPicker}>
         <CalendarDays size={17} />
         <span>{formatDateLabel(date)}</span>
       </button>
@@ -253,7 +193,7 @@ function AuthView({ onAuth }) {
   );
 }
 
-function GroupLobby({ token, groups, onRefresh, onSelect }) {
+function GroupLobby({ token, groups, onRefresh, onSelect, composerOpen, onCloseComposer }) {
   const [name, setName] = useState('');
   const [initialTopic, setInitialTopic] = useState('');
   const [inviteCode, setInviteCode] = useState(inviteFromUrl());
@@ -270,6 +210,7 @@ function GroupLobby({ token, groups, onRefresh, onSelect }) {
       }, token);
       setName('');
       setInitialTopic('');
+      onCloseComposer();
       await onRefresh();
       onSelect(group.id);
     } catch (err) {
@@ -287,6 +228,7 @@ function GroupLobby({ token, groups, onRefresh, onSelect }) {
         body: JSON.stringify({ inviteCode }),
       }, token);
       setInviteCode('');
+      onCloseComposer();
       window.history.replaceState({}, '', window.location.pathname);
       await onRefresh();
       onSelect(group.id);
@@ -298,37 +240,147 @@ function GroupLobby({ token, groups, onRefresh, onSelect }) {
   return (
     <section className="group-lobby">
       <div className="lobby-heading">
-        <p className="eyebrow">Groups</p>
-        <h1>어느 친구방에 기록할까요?</h1>
+        <h1>친구들과 하루 한 장</h1>
+      </div>
+      <div className="lobby-feature-card">
+        <div>
+          <strong>drawlog</strong>
+          <span>매일 정해진 주제로 그림을 남겨요</span>
+        </div>
       </div>
       <div className="group-grid">
         {groups.map((group) => (
           <button className="group-tile" key={group.id} onClick={() => onSelect(group.id)}>
-            <strong>{group.name}</strong>
-            <span>{group.members.length}명</span>
+            <div>
+              <strong>{group.name}</strong>
+              <span>{group.members.length}명 참여 중</span>
+            </div>
+            <div className="member-dots" aria-hidden="true">
+              {group.members.slice(0, 5).map((member) => (
+                <i key={member.userId}>{member.username.slice(0, 1)}</i>
+              ))}
+            </div>
           </button>
         ))}
       </div>
-      <div className="lobby-forms">
-        <form onSubmit={createGroup} className="panel compact">
-          <div className="panel-title"><Plus size={18} /><h2>그룹 생성</h2></div>
-          <input placeholder="새 그룹 이름" value={name} onChange={(e) => setName(e.target.value)} required />
-          <input placeholder="첫 주제 직접 설정 (비우면 자동)" value={initialTopic} onChange={(e) => setInitialTopic(e.target.value)} maxLength={120} />
-          <button className="primary" type="submit">만들기</button>
-        </form>
-        <form onSubmit={joinGroup} className="panel compact">
-          <div className="panel-title"><Users size={18} /><h2>초대코드 입장</h2></div>
-          <input placeholder="초대코드" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} required />
-          <button className="primary" type="submit">입장하기</button>
-        </form>
-      </div>
+      {composerOpen && (
+        <div className="modal-backdrop lobby-modal-backdrop">
+          <section className="lobby-modal">
+            <div className="modal-header">
+              <h2>그룹 시작하기</h2>
+              <button title="닫기" onClick={onCloseComposer}><X size={18} /></button>
+            </div>
+            <div className="lobby-forms">
+              <form onSubmit={createGroup} className="panel compact">
+                <div className="panel-title"><Plus size={18} /><h2>그룹 생성</h2></div>
+                <input name="groupName" placeholder="새 그룹 이름" value={name} onChange={(e) => setName(e.target.value)} required />
+                <input placeholder="첫 주제 직접 설정 (비우면 자동)" value={initialTopic} onChange={(e) => setInitialTopic(e.target.value)} maxLength={120} />
+                <button className="primary" type="submit">만들기</button>
+              </form>
+              <form onSubmit={joinGroup} className="panel compact">
+                <div className="panel-title"><Users size={18} /><h2>초대코드 입장</h2></div>
+                <input placeholder="초대코드" value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} required />
+                <button className="primary" type="submit">입장하기</button>
+              </form>
+            </div>
+          </section>
+        </div>
+      )}
       {message && <p className="error">{message}</p>}
     </section>
   );
 }
 
-function SuggestionEditor({ token, groupId, refreshKey }) {
-  const [suggestion, setSuggestion] = useState(null);
+function NotificationModal({ auth, onAuth, onClose }) {
+  const [notifications, setNotifications] = useState([]);
+  const [settings, setSettings] = useState(null);
+  const [error, setError] = useState('');
+
+  async function load() {
+    try {
+      const [items, nextSettings] = await Promise.all([
+        request('/notifications', {}, auth, onAuth),
+        request('/notification-settings', {}, auth, onAuth),
+      ]);
+      setNotifications(items || []);
+      setSettings(nextSettings);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function readAll() {
+    await request('/notifications/read-all', { method: 'PATCH' }, auth, onAuth);
+    await load();
+  }
+
+  async function updateAll(enabled) {
+    const next = await request('/notification-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allEnabled: enabled }),
+    }, auth, onAuth);
+    setSettings(next);
+  }
+
+  async function updateGroup(groupId, enabled) {
+    await request(`/groups/${groupId}/notification-setting`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }, auth, onAuth);
+    await load();
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="notification-modal">
+        <div className="modal-header">
+          <h2>알림</h2>
+          <button title="닫기" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="notification-actions">
+          <button onClick={readAll}><Check size={16} /> 모두 읽음</button>
+          <button className={settings?.allEnabled ? 'active' : ''} onClick={() => updateAll(!settings?.allEnabled)}>
+            <Bell size={16} /> 전체 {settings?.allEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+        {settings?.allEnabled ? (
+          <div className="settings-list">
+            {settings?.groups?.map((group) => (
+              <button key={group.groupId} onClick={() => updateGroup(group.groupId, !group.enabled)}>
+                <span>{group.groupName}</span>
+                <strong>{group.enabled ? 'ON' : 'OFF'}</strong>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="muted notification-muted">전체 알림이 꺼져 있어요.</p>
+        )}
+        <div className="notification-list">
+          {notifications.length === 0 && <p className="muted">아직 알림이 없어요.</p>}
+          {notifications.map((item) => (
+            <article key={item.id} className={item.readAt ? '' : 'unread'}>
+              <strong>{item.title}</strong>
+              <p>{item.message}</p>
+              <span>{new Date(item.createdAt).toLocaleString('ko-KR')}</span>
+            </article>
+          ))}
+        </div>
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
+function SuggestionPanel({ auth, onAuth, groupId, refreshKey }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [myVote, setMyVote] = useState(null);
   const [text, setText] = useState('');
   const [message, setMessage] = useState('');
 
@@ -673,43 +725,30 @@ function ChatPanel({ token, auth, groupId, quoteTarget, onClearQuote }) {
     }
   }
 
+  async function remove(messageId) {
+    await request(`/groups/${groupId}/chats/${messageId}`, { method: 'DELETE' }, auth, onAuth);
+    await loadMessages({ quiet: true });
+  }
+
+  const visibleMessages = messages.filter((message) => !message.deletedAt);
+
   return (
     <section className="chat-panel">
-      <div className="chat-title">
-        <div className="panel-title"><MessageCircle size={18} /><h2>그룹 채팅</h2></div>
-        <button title="새로고침" onClick={() => loadMessages()}><Redo2 size={16} /></button>
-      </div>
       <div className="chat-list">
-        {messages.length === 0 && <p className="muted empty-chat">아직 대화가 없어요.</p>}
-        {messages.map((message) => {
+        {visibleMessages.length === 0 && <p className="muted empty-chat">아직 대화가 없어요.</p>}
+        {visibleMessages.map((message) => {
           const mine = message.userId === auth.userId;
           const quoted = Boolean(message.quote);
-          const replied = Boolean(message.replyTo);
-          const bubbleClass = ['chat-bubble'];
-          if (quoted) bubbleClass.push('with-quote');
-          if (replied) bubbleClass.push('with-reply');
-          if (!quoted && !replied) bubbleClass.push('text-only');
           return (
-            <div className={`chat-row ${mine ? 'mine' : 'theirs'}`} key={message.id}>
-              {!mine && (
-                <span className="chat-avatar">
-                  {message.profileImageUrl ? (
-                    <img src={message.profileImageUrl} alt={`${message.username} 프로필`} loading="lazy" decoding="async" />
-                  ) : (
-                    (message.username || '?').slice(0, 1)
-                  )}
-                </span>
-              )}
-              <div className="chat-message-stack">
-                {!mine && <span className="chat-sender-name">{message.username}</span>}
-                <div className={bubbleClass.join(' ')}>
-                  {message.quote && (
-                    <div className="chat-quote-preview">
-                      <img src={quoteImageUrl(message.quote)} alt={`${message.quote.username} 그림`} loading="lazy" decoding="async" />
-                      <div>
-                        <span>{message.quote.username}의 그림</span>
-                        <p>{message.quote.topicText}</p>
-                      </div>
+            <div className={`chat-row ${mine ? 'mine' : ''}`} key={message.id}>
+              <div className={`chat-bubble ${quoted ? 'with-quote' : 'text-only'}`}>
+                {!mine && <strong>{message.username}</strong>}
+                {message.quote && (
+                  <div className="chat-quote-preview">
+                    <img src={quoteImageUrl(message.quote)} alt={`${message.quote.username} 그림`} />
+                    <div>
+                      <span>{message.quote.username}의 그림</span>
+                      <p>{message.quote.topicText}</p>
                     </div>
                   )}
                   {message.replyTo && (
@@ -796,7 +835,12 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [viewerDrawing, setViewerDrawing] = useState(null);
   const [chatQuote, setChatQuote] = useState(null);
+  const [roomView, setRoomView] = useState('feed');
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [groupMenuView, setGroupMenuView] = useState('main');
+  const [menuNotice, setMenuNotice] = useState('');
   const [groupName, setGroupName] = useState(group.name);
+  const [groupMaxMembers, setGroupMaxMembers] = useState(group.maxMembers || 6);
   const [ownerMessage, setOwnerMessage] = useState('');
   const inviteLink = `${window.location.origin}?invite=${group.inviteCode}`;
   const isToday = date === todayString();
@@ -807,18 +851,46 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
 
   useEffect(() => {
     setGroupName(group.name);
-  }, [group.name]);
+    setGroupMaxMembers(group.maxMembers || 6);
+  }, [group.name, group.maxMembers]);
+
+  useEffect(() => {
+    if (!groupMenuOpen) {
+      setGroupMenuView('main');
+      setMenuNotice('');
+      setOwnerMessage('');
+    }
+  }, [groupMenuOpen]);
+
+  useEffect(() => {
+    if (!menuNotice) return undefined;
+    const timer = window.setTimeout(() => setMenuNotice(''), 2400);
+    return () => window.clearTimeout(timer);
+  }, [menuNotice]);
+
+  async function loadFeed() {
+    const data = await request(`/groups/${group.id}/feed?date=${date}`, {}, auth, onAuth);
+    setFeed(data);
+  }
 
   useEffect(() => {
     request(`/feed?groupId=${group.id}&date=${date}`, {}, auth.token).then(setFeed).catch(() => setFeed(null));
   }, [auth.token, group.id, date, refreshKey]);
 
-  const myMember = feed?.members?.find((member) => member.userId === auth.userId);
+  const myMember = feed?.members?.find((member) => String(member.userId) === String(auth.userId));
   const myDrawing = myMember?.drawing || null;
-
-  async function copyInvite() {
-    await navigator.clipboard.writeText(inviteLink);
-  }
+  const mySubmitted = Boolean(feed?.submitted || myDrawing);
+  const topic = feed?.dailyTopic;
+  const isFeedBlind = Boolean(isToday && feed?.feedLocked && !mySubmitted);
+  const feedMembers = feed?.members?.length ? feed.members : group.members || [];
+  const memberSlots = useMemo(() => {
+    const sortedMembers = [...feedMembers].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
+    const slotCount = Math.min(12, Math.max(2, group.maxMembers || groupMaxMembers || 2, sortedMembers.length));
+    return Array.from({ length: slotCount }, (_, index) => ({
+      id: sortedMembers[index]?.userId ? `member-${sortedMembers[index].userId}` : `invite-${index}`,
+      member: sortedMembers[index] || null,
+    }));
+  }, [feedMembers, group.maxMembers, groupMaxMembers]);
 
   async function leaveGroup() {
     const ok = window.confirm(`${group.name} 그룹에서 나갈까요? 마지막 멤버라면 그룹의 주제, 제안, 그림 데이터가 모두 삭제됩니다.`);
@@ -844,23 +916,105 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
     onRefreshGroups();
   }
 
-  async function renameGroup(event) {
+  function openGroupMenu(view = 'main') {
+    setGroupMenuView(view);
+    setMenuNotice('');
+    setGroupMenuOpen(true);
+  }
+
+  function closeGroupMenu() {
+    setGroupMenuOpen(false);
+  }
+
+  function openMenuView(view) {
+    setGroupMenuView(view);
+    setMenuNotice('');
+    setOwnerMessage('');
+  }
+
+  async function copyText(text, message) {
+    try {
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          copied = true;
+        } catch {}
+      }
+      if (!copied) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.setAttribute('readonly', '');
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, text.length);
+        copied = document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      if (!copied) throw new Error('copy failed');
+      setMenuNotice(message);
+    } catch {
+      setMenuNotice('복사하지 못했어요. 길게 눌러 직접 복사해 주세요.');
+    }
+  }
+
+  async function shareInvite() {
+    const payload = {
+      title: 'Drawlog 그룹 초대',
+      text: '함께 하루로그를 기록해요.',
+      url: inviteLink,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        setMenuNotice('초대 링크를 공유했어요.');
+        return;
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+      }
+    }
+    await copyText(inviteLink, '초대 링크가 복사되었습니다.');
+  }
+
+  async function saveGroupSettings(event) {
     event.preventDefault();
     setOwnerMessage('');
     try {
       await request(`/groups/${group.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: groupName }),
-      }, auth.token);
-      setOwnerMessage('그룹 이름을 바꿨어요.');
+        body: JSON.stringify({ name: groupName, maxMembers: groupMaxMembers }),
+      }, auth, onAuth);
+      setOwnerMessage('그룹 설정을 저장했어요.');
       await onRefreshGroups();
     } catch (err) {
       setOwnerMessage(err.message);
     }
   }
 
-  async function regenerateInvite() {
+  async function transferOwner(member) {
+    const ok = window.confirm(`${member.nickname}님에게 방장을 위임할까요?`);
+    if (!ok) return;
+    setOwnerMessage('');
+    try {
+      await request(`/groups/${group.id}/transfer-owner`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId: member.userId }),
+      }, auth, onAuth);
+      setOwnerMessage('방장을 위임했어요.');
+      await refreshAll();
+    } catch (err) {
+      setOwnerMessage(err.message);
+    }
+  }
+
+  async function removeMember(member) {
+    const ok = window.confirm(`${member.nickname}님을 그룹에서 내보낼까요?`);
+    if (!ok) return;
     setOwnerMessage('');
     try {
       await request(`/groups/${group.id}/invite-code`, { method: 'POST' }, auth.token);
@@ -871,107 +1025,297 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
     }
   }
 
-  async function removeMember(member) {
-    const ok = window.confirm(`${member.username}님을 그룹에서 내보낼까요?`);
-    if (!ok) return;
-    setOwnerMessage('');
-    try {
-      await request(`/groups/${group.id}/members/${member.userId}`, { method: 'DELETE' }, auth.token);
-      setOwnerMessage('멤버를 내보냈어요.');
-      refreshAll();
-    } catch (err) {
-      setOwnerMessage(err.message);
+  function menuTitle() {
+    if (groupMenuView === 'invite') return '초대코드';
+    if (groupMenuView === 'members') return '멤버';
+    if (groupMenuView === 'settings') return '설정';
+    return '그룹 메뉴';
+  }
+
+  function renderGroupMenuContent() {
+    const sourceMembers = group.members?.length ? group.members : feed?.members || [];
+    const members = [...sourceMembers].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
+    const currentMembership = members.find((member) => String(member.userId) === String(auth.userId));
+    const isGroupOwner = Boolean(group.owner || currentMembership?.role === 'OWNER');
+    const currentMemberCount = members.length;
+
+    if (groupMenuView === 'invite') {
+      return (
+        <>
+          <button className="invite-share-card" onClick={shareInvite}>
+            <Plus size={18} />
+            <div>
+              <strong>친구 초대</strong>
+              <span>초대 링크 공유하기</span>
+            </div>
+          </button>
+          <button className="invite-code-chip" onClick={() => copyText(group.inviteCode, '초대코드를 복사했어요')}>
+            <KeyRound size={16} />
+            <strong>{group.inviteCode}</strong>
+          </button>
+          {menuNotice && <p className="menu-toast">{menuNotice}</p>}
+        </>
+      );
     }
+
+    if (groupMenuView === 'members') {
+      return (
+        <>
+          <div className="menu-member-list clean">
+            {members.map((member) => {
+              const owner = member.role === 'OWNER';
+              return (
+                <article className="member-card" key={member.userId}>
+                  <div className="member-card-main">
+                    <span className="member-avatar">
+                      {member.profileImageUrl ? (
+                        <img src={member.profileImageUrl} alt={`${member.nickname} 프로필`} />
+                      ) : (
+                        member.nickname.slice(0, 1)
+                      )}
+                    </span>
+                    <div>
+                      <strong>{member.nickname}</strong>
+                      {owner && <span>방장</span>}
+                    </div>
+                  </div>
+                  {isGroupOwner && String(member.userId) !== String(auth.userId) && (
+                    <div className="member-actions">
+                      <button onClick={() => transferOwner(member)}>위임</button>
+                      <button className="danger" onClick={() => removeMember(member)}>내보내기</button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+          {ownerMessage && <p className={ownerMessage.includes('못') || ownerMessage.includes('보류') ? 'error' : 'notice'}>{ownerMessage}</p>}
+        </>
+      );
+    }
+
+    if (groupMenuView === 'settings') {
+      return (
+        <>
+          {isGroupOwner && (
+            <section className="menu-section">
+              <strong>설정</strong>
+              <form onSubmit={saveGroupSettings} className="owner-name-row compact">
+                <label className="settings-field">
+                  <span>그룹 이름</span>
+                  <input value={groupName} onChange={(event) => setGroupName(event.target.value)} minLength={2} maxLength={80} required />
+                </label>
+                <div className="member-count-setting">
+                  <span>최대 인원</span>
+                  <div className="member-count-picker compact">
+                    {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={groupMaxMembers === value ? 'active' : ''}
+                        disabled={value < currentMemberCount}
+                        onClick={() => setGroupMaxMembers(value)}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button type="submit">저장</button>
+              </form>
+            </section>
+          )}
+          <section className="menu-section">
+            <strong>내 계정</strong>
+            <button className="danger wide-action" onClick={leaveGroup}><LogOut size={16} /> 그룹 나가기</button>
+          </section>
+          {ownerMessage && <p className={ownerMessage.includes('못') || ownerMessage.includes('보류') ? 'error' : 'notice'}>{ownerMessage}</p>}
+        </>
+      );
+    }
+
+    return (
+      <div className="group-menu-main">
+        <button onClick={() => openMenuView('invite')}>
+          <KeyRound size={18} />
+          <span>초대코드 / 친구 초대</span>
+        </button>
+        <button onClick={() => openMenuView('members')}>
+          <Users size={18} />
+          <span>멤버</span>
+        </button>
+        <button onClick={() => openMenuView('settings')}>
+          <Settings size={18} />
+          <span>설정</span>
+        </button>
+      </div>
+    );
   }
 
   return (
-    <main className="room-shell">
-      <header className="room-header">
-        <button className="ghost" onClick={onBack}><ChevronLeft size={18} /> 그룹 선택</button>
-        <button className="ghost" onClick={() => {
-          localStorage.removeItem('drawlog.auth');
-          window.location.reload();
-        }}><LogOut size={18} /> 로그아웃</button>
-      </header>
-      <section className="topic-hero">
-        <p className="eyebrow">{group.name}</p>
-        <h1>{topic?.text || '오늘의 주제를 불러오는 중'}</h1>
-        <div className="hero-meta">
-          <DateNavigator date={date} onChange={setDate} />
-          <span>{date === topic?.date ? '오늘의 주제' : `${date} 피드`}</span>
+    <main className={`room-shell setlog-room ${roomView === 'chat' ? 'chat-mode' : ''}`}>
+      <header className="room-header setlog-room-header">
+        <button
+          className="circle-button"
+          title={roomView === 'chat' ? '그룹 메인' : '그룹 선택'}
+          onClick={() => (roomView === 'chat' ? setRoomView('feed') : onBack())}
+        >
+          <ChevronLeft size={30} />
+        </button>
+        <div className="group-menu-anchor">
+          <button className="group-pill" onClick={() => (groupMenuOpen ? closeGroupMenu() : openGroupMenu())}>
+            <span>{group.name}</span>
+            <ChevronRight size={22} />
+          </button>
+          {groupMenuOpen && (
+            <>
+              <button className="menu-dismiss-layer" aria-label="메뉴 닫기" onClick={closeGroupMenu} />
+              <section className={`group-menu-popover ${groupMenuView !== 'main' ? 'wide' : ''}`}>
+                <div className={`group-menu-card-head ${groupMenuView !== 'main' ? 'sub' : ''}`}>
+                  {groupMenuView === 'main' ? (
+                    <span className="menu-head-spacer" aria-hidden="true" />
+                  ) : (
+                    <button title="뒤로" onClick={() => openMenuView('main')}><ChevronLeft size={17} /></button>
+                  )}
+                  <strong>{menuTitle()}</strong>
+                  <button title="닫기" onClick={closeGroupMenu}><X size={16} /></button>
+                </div>
+                {renderGroupMenuContent()}
+              </section>
+            </>
+          )}
         </div>
-      </section>
-      <section className="invite-band">
-        <div>
-          <strong>초대코드 {group.inviteCode}</strong>
-          <span>{inviteLink}</span>
-        </div>
-        <div className="invite-actions">
-          <button onClick={copyInvite}><Copy size={17} /> 복사</button>
-          <button className="danger" onClick={leaveGroup}><LogOut size={17} /> 그룹 나가기</button>
-        </div>
-      </section>
-      <SuggestionEditor token={auth.token} groupId={group.id} refreshKey={refreshKey} />
-      {group.owner && (
-        <section className="owner-panel">
-          <div className="panel-title"><Users size={18} /><h2>그룹 관리</h2></div>
-          <form onSubmit={renameGroup} className="owner-name-row">
-            <input value={groupName} onChange={(e) => setGroupName(e.target.value)} minLength={2} maxLength={80} required />
-            <button type="submit">이름 변경</button>
-            <button type="button" onClick={regenerateInvite}>초대코드 재발급</button>
-          </form>
-          <div className="owner-member-list">
-            {feed?.members?.map((member) => (
-              <div key={member.userId}>
-                <span>{member.username}{member.owner ? ' · 방장' : ''}</span>
-                {!member.owner && <button onClick={() => removeMember(member)}>내보내기</button>}
-              </div>
-            ))}
-          </div>
-          {ownerMessage && <p className={ownerMessage.includes('못') || ownerMessage.includes('없') ? 'error' : 'notice'}>{ownerMessage}</p>}
-        </section>
-      )}
-      <section className="member-board">
-        {feed?.members?.map((member) => (
-          <article
-            className={`member-tile ${member.drawing ? 'done' : ''} ${member.userId === auth.userId ? 'mine' : ''}`}
-            key={member.userId}
-          >
-            <button className="member-tile-main" onClick={() => openMember(member)}>
-              <span>{member.username}</span>
-              {member.owner && <strong className="owner-badge">방장</strong>}
-              {member.drawing ? (
-                <img src={member.drawing.imageUrl} alt={`${member.username} 미리보기`} />
-              ) : (
-                <small>{member.userId === auth.userId && isToday ? '그리기' : '아직 없음'}</small>
-              )}
-              <em>{member.userId === auth.userId && isToday ? <Edit3 size={15} /> : member.drawing ? <Eye size={15} /> : null}</em>
+        <div className="room-header-actions">
+          {roomView !== 'chat' && (
+            <button className="chat-entry-button" title="채팅" onClick={() => setRoomView('chat')}>
+              <MessageCircle size={20} />
+              <span>채팅</span>
             </button>
-            {member.drawing && (
-              <button className="quote-button" onClick={() => setChatQuote(member.drawing)}><Quote size={14} /> 인용</button>
-            )}
-          </article>
-        ))}
-      </section>
-      {myDrawing && (
-        <section className="my-preview">
-          <div>
-            <p className="eyebrow">Saved</p>
-            <h2>내 그림 미리보기</h2>
-          </div>
-          <img src={myDrawing.imageUrl} alt="내 그림 미리보기" />
-          <button onClick={() => setChatQuote(myDrawing)}><Quote size={15} /> 인용</button>
-          {isToday ? <button onClick={() => setEditorOpen(true)}>수정하기</button> : <button onClick={() => setViewerDrawing(myDrawing)}>크게보기</button>}
+          )}
+        </div>
+      </header>
+      {roomView === 'chat' ? (
+        <section className="room-chat-screen">
+          <ChatPanel
+            token={auth.token}
+            auth={auth}
+            groupId={group.id}
+            quoteTarget={chatQuote}
+            onClearQuote={() => setChatQuote(null)}
+          />
         </section>
+      ) : (
+        <>
+          <section className="room-tools">
+            <DateNavigator date={date} onChange={setDate} />
+          </section>
+          <section className="topic-hero setlog-topic-card">
+            <div>
+              <p>{isToday ? '오늘의 주제' : '그날의 주제'}</p>
+              <h1>{topic?.text || '주제를 불러오는 중'}</h1>
+            </div>
+            <div className="topic-face" aria-hidden="true">:)</div>
+          </section>
+          {menuNotice && <p className="menu-toast room-menu-toast">{menuNotice}</p>}
+          <section className="room-dashboard">
+            <div className={`activity-column ${isFeedBlind ? 'locked' : ''}`}>
+                  <section className="member-board">
+                    {memberSlots.map((slot) => {
+                      const member = slot.member;
+                      if (!member) {
+                        return (
+                          <article className="member-tile invite-slot" key={slot.id}>
+                            <button className="member-tile-main invite-slot-main" onClick={shareInvite}>
+                              <span className="invite-plus">+</span>
+                              <strong>친구 초대</strong>
+                            </button>
+                          </article>
+                        );
+                      }
+                      const hasVisibleDrawing = Boolean(member.drawing);
+                      const memberSubmitted = Boolean(member.submitted || member.drawing);
+                      const mine = String(member.userId) === String(auth.userId);
+                      const blind = Boolean(isFeedBlind && !mine && memberSubmitted);
+                      const emptyMessage = mine && isToday && !mySubmitted ? '그림을 추가해 주세요' : '아직 그림이 없어요';
+                      return (
+                        <article
+                          className={`member-tile ${hasVisibleDrawing ? 'done' : ''} ${blind ? 'blind' : ''} ${mine ? 'mine' : ''}`}
+                          key={slot.id}
+                        >
+                          <button className="member-tile-main" onClick={() => openMember(member)}>
+                            {member.drawing && (
+                              <img className="slot-bg-image" src={drawingImageUrl(member.drawing)} alt={`${member.nickname} 미리보기`} />
+                            )}
+                            <div className="member-slot-head">
+                              <span className="slot-avatar">
+                                {member.profileImageUrl ? (
+                                  <img src={member.profileImageUrl} alt={`${member.nickname} 프로필`} />
+                                ) : (
+                                  member.nickname.slice(0, 1)
+                                )}
+                              </span>
+                              <div className="member-slot-copy">
+                                <strong>{member.nickname}</strong>
+                              </div>
+                            </div>
+                            {blind && (
+                              <div className="slot-blind-state">
+                                <Lock size={18} />
+                                <span>내 그림을 올리면 볼 수 있어요</span>
+                              </div>
+                            )}
+                            {!member.drawing && !blind && (
+                              <div className="slot-empty-state">
+                                <Edit3 size={18} />
+                                <span>{emptyMessage}</span>
+                              </div>
+                            )}
+                          </button>
+                          {member.drawing && !blind && (
+                            <button className="quote-button" onClick={() => {
+                              setChatQuote(member.drawing);
+                              setRoomView('chat');
+                            }} title="채팅에 인용" aria-label="채팅에 인용"><Quote size={30} /></button>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </section>
+                  {myDrawing && (
+                    <section className="my-preview">
+                      <div>
+                        <p className="eyebrow">Saved</p>
+                        <h2>내 그림 미리보기</h2>
+                      </div>
+                      <img src={drawingImageUrl(myDrawing)} alt="내 그림 미리보기" />
+                      <button onClick={() => {
+                        setChatQuote(myDrawing);
+                        setRoomView('chat');
+                      }}><Quote size={15} /> 인용</button>
+                      {isToday ? <button onClick={() => setEditorOpen(true)}>수정하기</button> : <button onClick={() => setViewerDrawing(myDrawing)}>크게보기</button>}
+                    </section>
+                  )}
+            </div>
+          </section>
+          {myDrawing && (
+            <section className="my-preview">
+              <div>
+                <p className="eyebrow">Saved</p>
+                <h2>내 그림 미리보기</h2>
+              </div>
+              <img src={myDrawing.imageUrl} alt="내 그림 미리보기" />
+              <button onClick={() => {
+                setChatQuote(myDrawing);
+                setRoomView('chat');
+              }}><Quote size={15} /> 인용</button>
+              {isToday ? <button onClick={() => setEditorOpen(true)}>수정하기</button> : <button onClick={() => setViewerDrawing(myDrawing)}>크게보기</button>}
+            </section>
+          )}
+        </div>
+      </section>
+        </>
       )}
-      <ChatPanel
-        token={auth.token}
-        auth={auth}
-        groupId={group.id}
-        quoteTarget={chatQuote}
-        onClearQuote={() => setChatQuote(null)}
-      />
-      {isToday && !myDrawing && <button className="floating-draw" onClick={() => setEditorOpen(true)}><Edit3 size={18} /> 내 그림 그리기</button>}
+      {roomView === 'feed' && isToday && !myDrawing && <button className="floating-draw" onClick={() => setEditorOpen(true)}><Edit3 size={18} /> 내 그림 그리기</button>}
       {editorOpen && (
         <DrawingModal
           token={auth.token}
@@ -981,7 +1325,10 @@ function GroupRoom({ auth, group, onBack, onRefreshGroups, onLeftGroup }) {
           onSaved={refreshAll}
         />
       )}
-      <DrawingViewer drawing={viewerDrawing} onClose={() => setViewerDrawing(null)} onQuote={setChatQuote} />
+      <DrawingViewer drawing={viewerDrawing} onClose={() => setViewerDrawing(null)} onQuote={(drawing) => {
+        setChatQuote(drawing);
+        setRoomView('chat');
+      }} />
     </main>
   );
 }
@@ -993,6 +1340,7 @@ export default function App() {
   });
   const [groups, setGroups] = useState([]);
   const [selectedGroupId, setSelectedGroupId] = useState(() => localStorage.getItem('drawlog.groupId'));
+  const [lobbyComposerOpen, setLobbyComposerOpen] = useState(() => Boolean(inviteFromUrl()));
 
   useEffect(() => {
     if (!auth) return;
@@ -1027,18 +1375,29 @@ export default function App() {
 
   if (!selectedGroup) {
     return (
-      <main className="app-shell">
+      <main className="app-shell lobby-shell">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Drawlog</p>
-            <h1>{auth.username}님의 그룹</h1>
+            <p className="brand-word">DRAWLOG</p>
+            <span className="lobby-user">{auth.username}님</span>
           </div>
-          <button className="ghost" onClick={() => {
-            localStorage.removeItem('drawlog.auth');
-            setAuth(null);
-          }}><LogOut size={18} /> 로그아웃</button>
+          <div className="lobby-actions">
+            <button title="그룹 만들기" onClick={() => setLobbyComposerOpen(true)}><Plus size={28} /></button>
+            <button title="알림"><Bell size={25} /></button>
+            <button title="로그아웃" onClick={() => {
+              localStorage.removeItem('drawlog.auth');
+              setAuth(null);
+            }}><LogOut size={22} /></button>
+          </div>
         </header>
-        <GroupLobby token={auth.token} groups={groups} onRefresh={loadGroups} onSelect={selectGroup} />
+        <GroupLobby
+          token={auth.token}
+          groups={groups}
+          onRefresh={loadGroups}
+          onSelect={selectGroup}
+          composerOpen={lobbyComposerOpen}
+          onCloseComposer={() => setLobbyComposerOpen(false)}
+        />
       </main>
     );
   }

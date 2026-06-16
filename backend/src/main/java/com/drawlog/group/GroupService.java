@@ -138,9 +138,16 @@ public class GroupService {
     }
 
     @Transactional
-    public FriendGroup updateGroupName(Long userId, Long groupId, String name) {
-        FriendGroup group = requireOwnedGroup(userId, groupId);
+    public FriendGroup updateGroup(Long userId, Long groupId, String name, Integer maxMembers) {
+        FriendGroup group = requireOwner(userId, groupId);
         group.setName(name);
+        if (maxMembers != null) {
+            long currentMembers = memberRepository.countByGroupId(groupId);
+            if (maxMembers < currentMembers) {
+                throw new ApiException(ErrorCode.BAD_REQUEST, "현재 멤버 수보다 작은 최대 인원은 선택할 수 없습니다.");
+            }
+            group.setMaxMembers(maxMembers);
+        }
         return group;
     }
 

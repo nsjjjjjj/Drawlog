@@ -54,9 +54,9 @@ public class GroupController {
         return toResponse(groupService.updateGroupName(user.id(), id, request.name()));
     }
 
-    @PostMapping("/{id}/invite-code")
-    public GroupDtos.GroupResponse regenerateInvite(@AuthenticationPrincipal CurrentUser user, @PathVariable Long id) {
-        return toResponse(groupService.regenerateInviteCode(user.id(), id));
+    @PatchMapping("/{groupId}")
+    public GroupDtos.GroupDetailResponse update(@AuthenticationPrincipal CurrentUser user, @PathVariable Long groupId, @Valid @RequestBody GroupDtos.UpdateGroupRequest request) {
+        return detail(user.id(), groupService.updateGroup(user.id(), groupId, request.name(), request.maxMembers()));
     }
 
     @DeleteMapping("/{id}/members/{memberUserId}")
