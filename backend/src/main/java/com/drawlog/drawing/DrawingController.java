@@ -26,19 +26,17 @@ public class DrawingController {
     public DrawingDtos.DrawingResponse submit(
             @AuthenticationPrincipal CurrentUser user,
             @PathVariable Long groupId,
-            @RequestParam("strokeJson") String strokeJson,
-            @RequestParam("thumbnail") MultipartFile thumbnail
+            @RequestParam("image") MultipartFile image
     ) {
-        return drawingService.toResponse(drawingService.submitToday(user.id(), groupId, strokeJson, thumbnail));
+        return drawingService.toResponse(drawingService.submitToday(user.id(), groupId, image));
     }
 
     @PutMapping("/today")
     public DrawingDtos.DrawingResponse update(
             @AuthenticationPrincipal CurrentUser user,
             @PathVariable Long groupId,
-            @RequestParam("strokeJson") String strokeJson,
-            @RequestParam("thumbnail") MultipartFile thumbnail
+            @RequestParam("image") MultipartFile image
     ) {
-        return drawingService.toResponse(drawingService.updateToday(user.id(), groupId, strokeJson, thumbnail));
+        return drawingService.toResponse(drawingService.updateToday(user.id(), groupId, image));
     }
 }

@@ -87,9 +87,12 @@ public class ChatService {
 
     public ChatDtos.ChatMessageResponse toResponse(ChatMessage message) {
         Drawing drawing = message.getDrawing();
+        String imageUrl = drawing == null ? null : drawing.getImagePath();
         ChatDtos.QuoteResponse quote = drawing == null ? null : new ChatDtos.QuoteResponse(
                 drawing.getId(),
-                drawing.getThumbnailPath(),
+                imageUrl,
+                imageUrl,
+                imageUrl,
                 drawing.getUser().getNickname(),
                 drawing.getDailyTopic().getText()
         );

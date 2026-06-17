@@ -15,6 +15,8 @@ public class ChatDtos {
 
     public record QuoteResponse(
             Long drawingId,
+            String imageUrl,
+            String imagePath,
             String thumbnailUrl,
             String username,
             String topicText

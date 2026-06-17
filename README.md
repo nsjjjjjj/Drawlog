@@ -62,12 +62,12 @@ docker compose up --build
 
 ## 그림 저장 구조
 
-- 원본 그림은 PostgreSQL `drawings.stroke_data` JSONB 컬럼에 Stroke JSON으로 저장됩니다.
-- 피드 미리보기는 WebP 썸네일 파일로 변환해 `uploads` volume에 저장합니다.
+- MVP 원본 그림은 브라우저 Canvas에서 WebP 또는 PNG 이미지로 변환해 `uploads` volume에 저장합니다.
+- 현재 DB에서는 기존 호환 컬럼인 `drawings.thumbnail_path`를 이미지 경로로 사용하고, 응답에는 `imageUrl`을 내려줍니다.
 - 그림 제출/수정 API는 `multipart/form-data`를 사용합니다.
-  - `strokeJson`: version/canvas/layers가 포함된 JSON 문자열
-  - `thumbnail`: WebP 파일
-- 트레이싱 이미지는 브라우저 메모리에서만 사용하고 서버에 저장하지 않습니다.
+  - `image`: Canvas에서 만든 WebP 또는 PNG 파일
+- `drawings.stroke_data` JSONB 컬럼은 V2 호환을 위해 남겨두지만, 현재 MVP에서는 읽지 않습니다. 기존 DB의 NOT NULL 제약과 호환되도록 이미지 저장 placeholder JSON이 들어갈 수 있습니다.
+- Stroke JSON, 레이어, 타임랩스, 트레이싱 이미지는 V2 기능으로 미뤘습니다.
 - `StorageService` 인터페이스는 유지되어 있어 추후 Google Cloud Storage 구현체로 교체할 수 있습니다.
 - 프로필 사진 변경/삭제, 그림 수정, 회원탈퇴 시 기존 로컬 파일을 정리합니다. 파일 삭제 실패는 사용자 요청을 막지 않지만 백엔드 WARN 로그와 실패 목록에 남겨 운영자가 확인할 수 있습니다.
 
@@ -159,8 +159,10 @@ docker compose up --build
 
 | Method | Path | 설명 |
 | --- | --- | --- |
+| `GET` | `/api/groups/{groupId}/drawings/today` | 내 오늘 그림 |
 | `POST` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 제출, multipart `image` |
 | `PUT` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 수정, multipart `image` |
+| `GET` | `/api/groups/{groupId}/drawings/{drawingId}` | 그림 상세 |
 | `GET` | `/api/groups/{groupId}/feed?date=YYYY-MM-DD` | 날짜별 피드 |
 | `GET` | `/api/groups/{groupId}/feed/dates` | 그림 기록이 존재하는 날짜 목록 |
 | `GET` | `/api/groups/{groupId}/chats?cursor=...&size=30` | 채팅 조회 |

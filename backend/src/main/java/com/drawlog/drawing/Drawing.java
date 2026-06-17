@@ -44,7 +44,7 @@ public class Drawing {
     private DailyTopic dailyTopic;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(nullable = false, columnDefinition = "jsonb")
+    @Column(columnDefinition = "jsonb")
     private String strokeData;
 
     @Column(nullable = false)
@@ -81,6 +81,8 @@ public class Drawing {
     public void setStrokeData(String strokeData) { this.strokeData = strokeData; }
     public String getThumbnailPath() { return thumbnailPath; }
     public void setThumbnailPath(String thumbnailPath) { this.thumbnailPath = thumbnailPath; }
+    public String getImagePath() { return thumbnailPath; }
+    public void setImagePath(String imagePath) { this.thumbnailPath = imagePath; }
     public Instant getSubmittedAt() { return submittedAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getLockedAt() { return lockedAt; }

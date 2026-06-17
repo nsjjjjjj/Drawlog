@@ -5,6 +5,8 @@ import java.time.Instant;
 public class DrawingDtos {
     public record DrawingResponse(
             Long id,
+            String imageUrl,
+            String imagePath,
             String thumbnailUrl,
             String strokeData,
             Long userId,

@@ -183,11 +183,11 @@ class DrawlogPolicyIntegrationTest {
     void drawingCanOnlyBeUpdatedBeforeItIsLockedAndDeleteApiIsAbsent() {
         User owner = user("draw-owner");
         FriendGroup group = groupService.createGroup(owner.getId(), "그림방", 6, "오늘 그림");
-        drawingService.submitToday(owner.getId(), group.getId(), strokeJson(), thumbnail());
+        drawingService.submitToday(owner.getId(), group.getId(), image());
 
         drawingService.lockDrawingsBefore(LocalDate.now().plusDays(1));
 
-        assertThatThrownBy(() -> drawingService.updateToday(owner.getId(), group.getId(), strokeJson(), thumbnail()))
+        assertThatThrownBy(() -> drawingService.updateToday(owner.getId(), group.getId(), image()))
                 .isInstanceOf(ApiException.class)
                 .extracting("code")
                 .isEqualTo(ErrorCode.DRAWING_LOCKED);
@@ -218,7 +218,7 @@ class DrawlogPolicyIntegrationTest {
 
         assertThat(feedService.feed(owner.getId(), group.getId(), LocalDate.now()).feedLocked()).isTrue();
 
-        drawingService.submitToday(owner.getId(), group.getId(), strokeJson(), thumbnail());
+        drawingService.submitToday(owner.getId(), group.getId(), image());
 
         assertThat(feedService.feed(owner.getId(), group.getId(), LocalDate.now()).feedLocked()).isFalse();
     }
@@ -372,21 +372,7 @@ class DrawlogPolicyIntegrationTest {
     }
 
     private MockMultipartFile image() {
-        return image("drawing.webp");
-    }
-
-    private MockMultipartFile image(String filename) {
-        return new MockMultipartFile("image", filename, "image/webp", new byte[] {1, 2, 3});
-    }
-
-    private Path uploadedFile(String imageUrl) {
-        String prefix = appProperties.getPublicUploadPath() + "/";
-        assertThat(imageUrl).startsWith(prefix);
-        return Path.of(appProperties.getUploadDir()).resolve(imageUrl.substring(prefix.length()));
-    }
-
-    private MockMultipartFile thumbnail() {
-        return new MockMultipartFile("thumbnail", "drawing.webp", "image/webp", new byte[] {1, 2, 3});
+        return new MockMultipartFile("image", "drawing.webp", "image/webp", new byte[] {1, 2, 3});
     }
 
     private void saveDrawing(User user, FriendGroup group, LocalDate date, String topicText) {

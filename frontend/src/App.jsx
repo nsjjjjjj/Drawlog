@@ -11,7 +11,6 @@ import {
   Eraser,
   Eye,
   Highlighter,
-  KeyRound,
   Lock,
   LogOut,
   MessageCircle,
@@ -19,7 +18,6 @@ import {
   Quote,
   Redo2,
   Save,
-  Settings,
   Trash2,
   Undo2,
   Users,
@@ -136,37 +134,8 @@ function quoteImageUrl(quote) {
   return quote?.imageUrl || quote?.imagePath || quote?.thumbnailUrl || '';
 }
 
-function DateNavigator({ date, onChange, selectableDates = [] }) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [visibleMonth, setVisibleMonth] = useState(monthKey(date));
-  const today = todayString();
-  const availableDates = useMemo(() => (
-    Array.from(new Set(selectableDates))
-      .filter((recordDate) => recordDate <= today)
-      .sort()
-  ), [selectableDates, today]);
-  const recordDateSet = useMemo(() => new Set(availableDates), [availableDates]);
-  const previousDate = useMemo(() => {
-    const before = availableDates.filter((recordDate) => recordDate < date);
-    return before.length ? before[before.length - 1] : null;
-  }, [availableDates, date]);
-  const nextDate = useMemo(() => availableDates.find((recordDate) => recordDate > date) || null, [availableDates, date]);
-
-  useEffect(() => {
-    setVisibleMonth(monthKey(date));
-  }, [date]);
-
-  function changeDate(nextRecordDate) {
-    if (!nextRecordDate || !recordDateSet.has(nextRecordDate)) return;
-    onChange(nextRecordDate);
-  }
-
-  function selectFromPicker(nextDate) {
-    if (!nextDate || nextDate > today || !recordDateSet.has(nextDate)) return;
-    onChange(nextDate);
-    setPickerOpen(false);
-  }
-
+function DateNavigator({ date, onChange }) {
+  const inputRef = useRef(null);
   return (
     <div className="date-nav">
       <button title="이전 기록 날짜" disabled={!previousDate} onClick={() => changeDate(previousDate)}><ChevronLeft size={18} /></button>
@@ -549,6 +518,11 @@ function DrawingModal({ auth, onAuth, groupId, existingDrawing, onClose, onSaved
   const [size, setSize] = useState(8);
   const [saving, setSaving] = useState(false);
   const [historyTick, setHistoryTick] = useState(0);
+
+  function context() {
+    const canvas = canvasRef.current;
+    return canvas?.getContext('2d') || null;
+  }
 
   function context() {
     const canvas = canvasRef.current;
@@ -1396,10 +1370,52 @@ function GroupRoom({ auth, onAuth, group, onBack, onRefreshGroups, onLeftGroup }
           </section>
           <section className="room-dashboard">
             <div className={`activity-column ${feed?.feedLocked ? 'locked' : ''}`}>
-              {showEmptyFeed ? (
-                <section className="empty-feed-state">
-                  <CalendarDays size={24} />
-                  <strong>{emptyFeedMessage}</strong>
+              {feed?.feedLocked && (
+                <div className="feed-lock">
+                  <Lock size={22} />
+                  <strong>오늘 피드는 내 그림을 올린 뒤 열려요.</strong>
+                </div>
+              )}
+              <section className="member-board">
+                {feed?.members?.map((member) => {
+                  const owner = member.role === 'OWNER';
+                  return (
+                    <article
+                      className={`member-tile ${member.drawing ? 'done' : ''} ${member.userId === auth.userId ? 'mine' : ''}`}
+                      key={member.userId}
+                    >
+                      <button className="member-tile-main" onClick={() => openMember(member)}>
+                        <span>{member.nickname}</span>
+                        {owner && <strong className="owner-badge">방장</strong>}
+                        {member.drawing ? (
+                          <img src={drawingImageUrl(member.drawing)} alt={`${member.nickname} 미리보기`} />
+                        ) : (
+                          <small>{member.userId === auth.userId && isToday ? '그리기' : feed?.feedLocked ? '잠김' : '아직 없음'}</small>
+                        )}
+                        <em>{member.userId === auth.userId && isToday ? <Edit3 size={15} /> : member.drawing ? <Eye size={15} /> : null}</em>
+                      </button>
+                      {member.drawing && (
+                        <button className="quote-button" onClick={() => {
+                          setChatQuote(member.drawing);
+                          setRoomView('chat');
+                        }}><Quote size={14} /> 인용</button>
+                      )}
+                    </article>
+                  );
+                })}
+              </section>
+              {myDrawing && (
+                <section className="my-preview">
+                  <div>
+                    <p className="eyebrow">Saved</p>
+                    <h2>내 그림 미리보기</h2>
+                  </div>
+                  <img src={drawingImageUrl(myDrawing)} alt="내 그림 미리보기" />
+                  <button onClick={() => {
+                    setChatQuote(myDrawing);
+                    setRoomView('chat');
+                  }}><Quote size={15} /> 인용</button>
+                  {isToday ? <button onClick={() => setEditorOpen(true)}>수정하기</button> : <button onClick={() => setViewerDrawing(myDrawing)}>크게보기</button>}
                 </section>
               ) : (
                 <>
@@ -1485,6 +1501,20 @@ export default function App() {
   const [selectedGroupId, setSelectedGroupId] = useState(() => localStorage.getItem('drawlog.groupId'));
   const [lobbyComposerOpen, setLobbyComposerOpen] = useState(() => Boolean(inviteFromUrl()));
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  useEffect(() => {
+    // Drop stale mobile PWA caches from previous local installs.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations()
+        .then((registrations) => registrations.forEach((registration) => registration.unregister()))
+        .catch(() => {});
+    }
+    if ('caches' in window) {
+      caches.keys()
+        .then((keys) => keys.forEach((key) => caches.delete(key)))
+        .catch(() => {});
+    }
+  }, []);
 
   function setAuth(nextAuth) {
     setAuthState(nextAuth);

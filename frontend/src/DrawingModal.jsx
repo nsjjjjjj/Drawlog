@@ -4,13 +4,15 @@ import { request } from './apiClient.js';
 import { CANVAS_HISTORY_LIMIT, CANVAS_INPUT_STYLE, drawingImageUrl } from './utils.js';
 
 export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, onClose, onSaved }) {
+  const modalRef = useRef(null);
   const canvasRef = useRef(null);
   const canvasSizeRef = useRef({ width: 0, height: 0 });
+  const rectRef = useRef(null);
   const drawingRef = useRef(false);
-  const lastPointRef = useRef(null);
   const undoRef = useRef([]);
   const redoRef = useRef([]);
   const pointerRef = useRef(null);
+  const canvasDebugLoggedRef = useRef(false);
   const [tool, setTool] = useState('pen');
   const [color, setColor] = useState('#202124');
   const [size, setSize] = useState(8);
@@ -49,16 +51,16 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
 
   function setupCanvas() {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const fallbackSize = Math.min(Math.max(window.innerWidth - 40, 320), 680);
-    const width = Math.max(Math.round(rect.width || fallbackSize), 320);
-    const height = width;
-    const ratio = window.devicePixelRatio || 1;
-    canvasSizeRef.current = { width, height };
-    canvas.width = Math.floor(width * ratio);
-    canvas.height = Math.floor(height * ratio);
+    const displayWidth = Math.max(Math.round(rect.width || fallbackSize), 1);
+    const displayHeight = Math.max(Math.round(rect.height || displayWidth), 1);
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    canvasSizeRef.current = { width: canvas.width, height: canvas.height };
+    canvasDebugLoggedRef.current = false;
     const ctx = context();
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     fillWhite();
@@ -77,6 +79,26 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
     };
     image.onerror = () => fillWhite();
     image.src = imageUrl;
+  }
+
+  function debugCanvasMetrics(event) {
+    if (!import.meta.env.DEV) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = rectRef.current || canvas.getBoundingClientRect();
+    console.debug('canvas metrics', {
+      rectWidth: rect.width,
+      rectHeight: rect.height,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      scaleX: canvas.width / (rect.width || canvas.width || 1),
+      scaleY: canvas.height / (rect.height || canvas.height || 1),
+      visualViewportScale: window.visualViewport?.scale,
+      visualViewportOffsetTop: window.visualViewport?.offsetTop,
+      rectTop: rect.top,
+      pointerClientY: event?.clientY,
+      modalScrollTop: modalRef.current?.scrollTop || 0,
+    });
   }
 
   function fillWhite() {
@@ -117,16 +139,16 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
   function point(event) {
     const canvas = canvasRef.current;
     if (!canvas || event.clientX == null || event.clientY == null) return null;
-    const rect = canvas.getBoundingClientRect();
-    const width = canvasSizeRef.current.width || rect.width || 1;
-    const height = canvasSizeRef.current.height || rect.height || 1;
+    const rect = rectRef.current || canvas.getBoundingClientRect();
+    const width = canvas.width || canvasSizeRef.current.width || 1;
+    const height = canvas.height || canvasSizeRef.current.height || 1;
     return {
       x: Math.max(0, Math.min(width, event.clientX - rect.left)),
       y: Math.max(0, Math.min(height, event.clientY - rect.top)),
     };
   }
 
-  function applyBrush(ctx) {
+  function configureBrush(ctx) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
@@ -140,100 +162,76 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
     const ctx = context();
     if (!ctx || !at) return;
     ctx.save();
-    applyBrush(ctx);
+    configureBrush(ctx);
     ctx.beginPath();
     ctx.arc(at.x, at.y, Math.max((tool === 'highlighter' ? size * 1.8 : size) / 2, 1), 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
-  function drawTo(next) {
-    if (!drawingRef.current || !lastPointRef.current || !next) return;
+  function strokeTo(next) {
+    if (!drawingRef.current || !next) return;
     const ctx = context();
     if (!ctx) return;
-    const previous = lastPointRef.current;
-    ctx.save();
-    applyBrush(ctx);
-    ctx.beginPath();
-    ctx.moveTo(previous.x, previous.y);
     ctx.lineTo(next.x, next.y);
     ctx.stroke();
-    ctx.restore();
-    lastPointRef.current = next;
-  }
-
-  function pointerEvents(event) {
-    const native = event.nativeEvent || event;
-    if (typeof native.getCoalescedEvents !== 'function') return [event.clientX == null ? native : event];
-    const events = native.getCoalescedEvents();
-    return events.length ? events : [native];
   }
 
   function startDrawing(event) {
     preventCanvasEvent(event);
     if (event.button !== undefined && event.button !== 0) return;
+    const canvas = canvasRef.current;
+    const ctx = context();
+    if (!canvas || !ctx) return;
+    rectRef.current = canvasRef.current?.getBoundingClientRect() || null;
+    if (import.meta.env.DEV && !canvasDebugLoggedRef.current) {
+      canvasDebugLoggedRef.current = true;
+      debugCanvasMetrics(event);
+    }
     const startPoint = point(event);
-    if (!startPoint) return;
+    if (!startPoint) {
+      rectRef.current = null;
+      return;
+    }
     pointerRef.current = event.pointerId ?? null;
     try {
       if (event.pointerId != null) event.currentTarget.setPointerCapture(event.pointerId);
     } catch {}
     pushUndoSnapshot();
+    configureBrush(ctx);
+    ctx.beginPath();
+    ctx.moveTo(startPoint.x, startPoint.y);
     drawingRef.current = true;
-    lastPointRef.current = startPoint;
     drawDot(startPoint);
+    configureBrush(ctx);
+    ctx.beginPath();
+    ctx.moveTo(startPoint.x, startPoint.y);
   }
 
   function moveDrawing(event) {
     preventCanvasEvent(event);
     if (!drawingRef.current) return;
     if (pointerRef.current != null && event.pointerId !== pointerRef.current) return;
-    pointerEvents(event).forEach((item) => drawTo(point(item)));
+    strokeTo(point(event));
   }
 
   function stopDrawing(event) {
     preventCanvasEvent(event);
     if (!drawingRef.current) return;
     if (pointerRef.current != null && event.pointerId !== pointerRef.current) return;
-    drawTo(point(event));
+    strokeTo(point(event));
     drawingRef.current = false;
-    lastPointRef.current = null;
+    rectRef.current = null;
+    const ctx = context();
+    if (ctx) {
+      ctx.closePath();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+    }
     try {
       if (event.pointerId != null) event.currentTarget.releasePointerCapture(event.pointerId);
     } catch {}
     pointerRef.current = null;
-  }
-
-  function firstTouch(event) {
-    return event.touches?.[0] || event.changedTouches?.[0] || null;
-  }
-
-  function touchEvent(touch, event) {
-    return {
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      currentTarget: canvasRef.current,
-      preventDefault: () => event.preventDefault(),
-      nativeEvent: event.nativeEvent || event,
-    };
-  }
-
-  function startTouch(event) {
-    if ('PointerEvent' in window) return;
-    const touch = firstTouch(event);
-    if (touch) startDrawing(touchEvent(touch, event));
-  }
-
-  function moveTouch(event) {
-    if ('PointerEvent' in window) return;
-    const touch = firstTouch(event);
-    if (touch) moveDrawing(touchEvent(touch, event));
-  }
-
-  function stopTouch(event) {
-    if ('PointerEvent' in window) return;
-    const touch = firstTouch(event);
-    if (touch) stopDrawing(touchEvent(touch, event));
   }
 
   function undo() {
@@ -299,7 +297,7 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
 
   return (
     <div className="modal-backdrop">
-      <section className="draw-modal">
+      <section className="draw-modal" ref={modalRef}>
         <div className="modal-header">
           <h2>{existingDrawing ? '내 그림 수정' : '내 그림 그리기'}</h2>
           <button title="닫기" onClick={onClose}><X size={18} /></button>
@@ -325,22 +323,6 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
             onPointerMove={moveDrawing}
             onPointerUp={stopDrawing}
             onPointerCancel={stopDrawing}
-            onTouchStart={startTouch}
-            onTouchMove={moveTouch}
-            onTouchEnd={stopTouch}
-            onTouchCancel={stopTouch}
-            onMouseDown={(event) => {
-              if ('PointerEvent' in window) return;
-              startDrawing(event);
-            }}
-            onMouseMove={(event) => {
-              if ('PointerEvent' in window) return;
-              moveDrawing(event);
-            }}
-            onMouseUp={(event) => {
-              if ('PointerEvent' in window) return;
-              stopDrawing(event);
-            }}
             onContextMenu={preventCanvasEvent}
           />
         </div>
