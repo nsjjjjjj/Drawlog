@@ -16,6 +16,7 @@ public interface TopicVoteRepository extends JpaRepository<TopicVote, Long> {
     Optional<TopicVote> findByGroupIdAndUserIdAndTargetDate(Long groupId, Long userId, LocalDate targetDate);
     long countBySuggestionId(Long suggestionId);
     List<TopicVote> findByGroupIdAndTargetDate(Long groupId, LocalDate targetDate);
+    void deleteByGroupId(Long groupId);
 
     @Query("""
             select vote.suggestion.id as suggestionId, count(vote.id) as voteCount

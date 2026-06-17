@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Edit3, KeyRound, Lock, LogOut,
 import { request } from './apiClient.js';
 import ChatPanel from './ChatPanel.jsx';
 import DrawingModal from './DrawingModal.jsx';
+import { canManageMember, visibleMembers } from './groupMembers.js';
 import { drawingImageUrl, formatDateLabel, monthDates, monthKey, shiftMonth, todayString, tomorrowString } from './utils.js';
 
 function DateNavigator({ date, onChange, selectableDates = [] }) {
@@ -271,9 +272,9 @@ export default function GroupRoom({ auth, onAuth, group, onBack, onRefreshGroups
   const mySubmitted = Boolean(feed?.submitted || myDrawing);
   const topic = feed?.dailyTopic;
   const isFeedBlind = Boolean(isToday && feed?.feedLocked && !mySubmitted);
-  const feedMembers = feed?.members?.length ? feed.members : group.members || [];
+  const feedMembers = visibleMembers(feed?.members?.length ? feed.members : group.members || []);
   const memberSlots = useMemo(() => {
-    const sortedMembers = [...feedMembers].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
+    const sortedMembers = visibleMembers(feedMembers);
     const slotCount = Math.min(12, Math.max(2, group.maxMembers || groupMaxMembers || 2, sortedMembers.length));
     return Array.from({ length: slotCount }, (_, index) => ({
       id: sortedMembers[index]?.userId ? `member-${sortedMembers[index].userId}` : `invite-${index}`,
@@ -423,7 +424,7 @@ export default function GroupRoom({ auth, onAuth, group, onBack, onRefreshGroups
 
   function renderGroupMenuContent() {
     const sourceMembers = group.members?.length ? group.members : feed?.members || [];
-    const members = [...sourceMembers].sort((a, b) => new Date(a.joinedAt || 0) - new Date(b.joinedAt || 0));
+    const members = visibleMembers(sourceMembers);
     const currentMembership = members.find((member) => String(member.userId) === String(auth.userId));
     const isGroupOwner = Boolean(group.owner || currentMembership?.role === 'OWNER');
     const currentMemberCount = members.length;
@@ -468,7 +469,7 @@ export default function GroupRoom({ auth, onAuth, group, onBack, onRefreshGroups
                       {owner && <span>방장</span>}
                     </div>
                   </div>
-                  {isGroupOwner && String(member.userId) !== String(auth.userId) && (
+                  {canManageMember(isGroupOwner, auth.userId, member) && (
                     <div className="member-actions">
                       <button onClick={() => transferOwner(member)}>위임</button>
                       <button className="danger" onClick={() => removeMember(member)}>내보내기</button>

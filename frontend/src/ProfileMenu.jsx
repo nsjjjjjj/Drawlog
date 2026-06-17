@@ -217,7 +217,7 @@ export default function ProfileMenu({ auth, onAuth, onLogout, onProfileUpdated, 
               <h2>회원탈퇴</h2>
               <button title="닫기" onClick={() => setConfirmDelete(false)}><X size={18} /></button>
             </div>
-            <p>정말 탈퇴하시겠어요? 과거 그림과 채팅 기록은 탈퇴한 사용자로 남을 수 있어요.</p>
+            <p>정말 탈퇴하시겠어요? 그룹에서는 나가지고, 그림과 프로필 사진은 삭제돼요.</p>
             <div className="confirm-actions">
               <button onClick={() => setConfirmDelete(false)}>취소</button>
               <button className="danger" onClick={deleteAccount}>탈퇴</button>

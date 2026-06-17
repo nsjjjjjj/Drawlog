@@ -15,7 +15,10 @@ import com.drawlog.drawing.DrawingRepository;
 import com.drawlog.drawing.DrawingService;
 import com.drawlog.feed.FeedService;
 import com.drawlog.group.FriendGroup;
+import com.drawlog.group.FriendGroupRepository;
+import com.drawlog.group.GroupMemberRepository;
 import com.drawlog.group.GroupService;
+import com.drawlog.group.MemberRole;
 import com.drawlog.topic.DailyTopic;
 import com.drawlog.topic.DailyTopicRepository;
 import com.drawlog.topic.TopicDtos;
@@ -59,6 +62,8 @@ class DrawlogPolicyIntegrationTest {
     @Autowired ChatMessageRepository chatMessageRepository;
     @Autowired RefreshTokenRepository refreshTokenRepository;
     @Autowired AppProperties appProperties;
+    @Autowired GroupMemberRepository memberRepository;
+    @Autowired FriendGroupRepository groupRepository;
 
     @BeforeEach
     @AfterEach
@@ -361,6 +366,231 @@ class DrawlogPolicyIntegrationTest {
                     assertThat(deleted.getEmail()).startsWith("deleted_user_");
                     assertThat(deleted.getNickname()).isEqualTo("탈퇴한 사용자");
                 });
+    }
+
+    @Test
+    void memberAccountDeletionRemovesMembership() {
+        User owner = user("withdraw-member-owner");
+        User member = user("withdraw-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "탈퇴멤버방", 6, null);
+        groupService.joinGroup(member.getId(), group.getInviteCode());
+
+        userService.deleteMe(member.getId());
+
+        assertThat(memberRepository.existsByGroupIdAndUserId(group.getId(), member.getId())).isFalse();
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), member.getId())).isEmpty();
+        assertThat(groupService.members(owner.getId(), group.getId()))
+                .extracting("userId")
+                .doesNotContain(member.getId());
+        assertThat(groupService.groupDetailsForUser(owner.getId()))
+                .filteredOn(detail -> detail.id().equals(group.getId()))
+                .singleElement()
+                .satisfies(detail -> assertThat(detail.members()).extracting("userId").doesNotContain(member.getId()));
+    }
+
+    @Test
+    void accountDeletionCleansMembershipsByUserIdEvenAfterEmailAndNicknameChange() {
+        User owner = user("id-cleanup-owner");
+        User member = user("id-cleanup-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "아이디정리방", 6, null);
+        groupService.joinGroup(member.getId(), group.getInviteCode());
+        Long memberId = member.getId();
+
+        member.setEmail("renamed-" + memberId + "@example.com");
+        member.setNickname("바뀐닉네임");
+
+        userService.deleteMe(memberId);
+
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), memberId)).isEmpty();
+        assertThat(groupService.members(owner.getId(), group.getId()))
+                .extracting("userId")
+                .doesNotContain(memberId);
+        assertThat(groupService.groupDetailsForUser(owner.getId()))
+                .filteredOn(detail -> detail.id().equals(group.getId()))
+                .singleElement()
+                .satisfies(detail -> assertThat(detail.members()).extracting("userId").doesNotContain(memberId));
+        assertThat(userRepository.findById(memberId)).get()
+                .satisfies(deleted -> {
+                    assertThat(deleted.getStatus()).isEqualTo(UserStatus.DELETED);
+                    assertThat(deleted.getEmail()).startsWith("deleted_user_" + memberId);
+                    assertThat(deleted.getNickname()).isEqualTo("탈퇴한 사용자");
+                });
+    }
+
+    @Test
+    void deletedUsersAreHiddenFromMembersAndFeedEvenIfMembershipRemains() {
+        User owner = user("stale-owner");
+        User deletedMember = user("stale-deleted-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "스테일멤버방", 6, "오늘 주제");
+        groupService.joinGroup(deletedMember.getId(), group.getInviteCode());
+        drawingService.submitToday(owner.getId(), group.getId(), image("owner-visible.webp"));
+        drawingService.submitToday(deletedMember.getId(), group.getId(), image("deleted-hidden.webp"));
+
+        deletedMember.setStatus(UserStatus.DELETED);
+        deletedMember.setNickname("탈퇴한 사용자");
+
+        assertThat(memberRepository.existsByGroupIdAndUserId(group.getId(), deletedMember.getId())).isTrue();
+        assertThat(groupService.members(owner.getId(), group.getId()))
+                .extracting("userId")
+                .doesNotContain(deletedMember.getId());
+        assertThat(feedService.feed(owner.getId(), group.getId(), LocalDate.now()).members())
+                .extracting("userId")
+                .doesNotContain(deletedMember.getId());
+    }
+
+    @Test
+    void ownerAccountDeletionTransfersOwnershipToOldestRemainingMember() {
+        User owner = user("withdraw-owner");
+        User firstMember = user("withdraw-first-member");
+        User secondMember = user("withdraw-second-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "자동위임방", 6, null);
+        groupService.joinGroup(firstMember.getId(), group.getInviteCode());
+        groupService.joinGroup(secondMember.getId(), group.getInviteCode());
+
+        userService.deleteMe(owner.getId());
+
+        assertThat(memberRepository.existsByGroupIdAndUserId(group.getId(), owner.getId())).isFalse();
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), owner.getId())).isEmpty();
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), firstMember.getId()))
+                .get()
+                .extracting("role")
+                .isEqualTo(MemberRole.OWNER);
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), secondMember.getId()))
+                .get()
+                .extracting("role")
+                .isEqualTo(MemberRole.MEMBER);
+    }
+
+    @Test
+    void ownerAccountDeletionSkipsDeletedMembersWhenSelectingSuccessor() {
+        User owner = user("withdraw-owner-stale");
+        User deletedOldestMember = user("withdraw-deleted-oldest");
+        User activeMember = user("withdraw-active-successor");
+        FriendGroup group = groupService.createGroup(owner.getId(), "삭제회원스킵방", 6, null);
+        groupService.joinGroup(deletedOldestMember.getId(), group.getInviteCode());
+        groupService.joinGroup(activeMember.getId(), group.getInviteCode());
+        deletedOldestMember.setStatus(UserStatus.DELETED);
+        deletedOldestMember.setNickname("탈퇴한 사용자");
+
+        userService.deleteMe(owner.getId());
+
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), activeMember.getId()))
+                .get()
+                .extracting("role")
+                .isEqualTo(MemberRole.OWNER);
+        assertThat(groupService.members(activeMember.getId(), group.getId()))
+                .extracting("userId")
+                .doesNotContain(deletedOldestMember.getId());
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), deletedOldestMember.getId())).isEmpty();
+    }
+
+    @Test
+    void ownerCannotTransferOrRemoveDeletedMember() {
+        User owner = user("deleted-target-owner");
+        User deletedMember = user("deleted-target-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "삭제타겟방", 6, null);
+        groupService.joinGroup(deletedMember.getId(), group.getInviteCode());
+        deletedMember.setStatus(UserStatus.DELETED);
+
+        assertThatThrownBy(() -> groupService.transferOwner(owner.getId(), group.getId(), deletedMember.getId()))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.NOT_GROUP_MEMBER);
+        assertThatThrownBy(() -> groupService.removeMember(owner.getId(), group.getId(), deletedMember.getId()))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.NOT_GROUP_MEMBER);
+    }
+
+    @Test
+    void staleDeletedOwnerMembershipIsRemovedAndOldestActiveMemberBecomesOwner() {
+        User deletedOwner = user("stale-deleted-owner");
+        User firstActiveMember = user("stale-first-active");
+        User secondActiveMember = user("stale-second-active");
+        FriendGroup group = groupService.createGroup(deletedOwner.getId(), "스테일방장방", 6, null);
+        groupService.joinGroup(firstActiveMember.getId(), group.getInviteCode());
+        groupService.joinGroup(secondActiveMember.getId(), group.getInviteCode());
+        deletedOwner.setStatus(UserStatus.DELETED);
+        deletedOwner.setNickname("탈퇴한 사용자");
+
+        var details = groupService.groupDetailsForUser(firstActiveMember.getId());
+
+        assertThat(details)
+                .filteredOn(detail -> detail.id().equals(group.getId()))
+                .singleElement()
+                .satisfies(detail -> {
+                    assertThat(detail.owner()).isTrue();
+                    assertThat(detail.members()).extracting("userId").containsExactly(firstActiveMember.getId(), secondActiveMember.getId());
+                    assertThat(detail.members()).extracting("nickname").doesNotContain("탈퇴한 사용자");
+                });
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), deletedOwner.getId())).isEmpty();
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), firstActiveMember.getId()))
+                .get()
+                .extracting("role")
+                .isEqualTo(MemberRole.OWNER);
+    }
+
+    @Test
+    void soleOwnerAccountDeletionDeletesEmptyGroup() {
+        User owner = user("solo-owner-delete");
+        FriendGroup group = groupService.createGroup(owner.getId(), "혼자방", 6, "혼자 주제");
+        chatService.send(owner.getId(), group.getId(), new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "혼자 남긴 말", null, null));
+
+        userService.deleteMe(owner.getId());
+
+        assertThat(groupRepository.findById(group.getId())).isEmpty();
+        assertThat(memberRepository.countByGroupId(group.getId())).isZero();
+    }
+
+    @Test
+    void accountDeletionDeletesDrawingsFilesAndRemovesUserFromFeed() {
+        User owner = user("withdraw-feed-owner");
+        User member = user("withdraw-feed-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "피드탈퇴방", 6, "오늘 피드");
+        groupService.joinGroup(member.getId(), group.getInviteCode());
+        drawingService.submitToday(owner.getId(), group.getId(), image("owner-drawing.webp"));
+        Drawing memberDrawing = drawingService.submitToday(member.getId(), group.getId(), image("member-drawing.webp"));
+        Path memberDrawingFile = uploadedFile(memberDrawing.getImagePath());
+
+        assertThat(memberDrawingFile).exists();
+
+        userService.deleteMe(member.getId());
+
+        assertThat(drawingRepository.findById(memberDrawing.getId())).isEmpty();
+        assertThat(memberDrawingFile).doesNotExist();
+        assertThat(feedService.feed(owner.getId(), group.getId(), LocalDate.now()).members())
+                .extracting("userId")
+                .doesNotContain(member.getId());
+    }
+
+    @Test
+    void accountDeletionHidesDeletedUserMessagesAndKeepsRemainingChatUsable() {
+        User owner = user("withdraw-chat-owner");
+        User member = user("withdraw-chat-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "채팅탈퇴방", 6, "오늘 채팅");
+        groupService.joinGroup(member.getId(), group.getInviteCode());
+        Drawing drawing = drawingService.submitToday(member.getId(), group.getId(), image("quoted-before-delete.webp"));
+        ChatDtos.ChatMessageResponse memberMessage = chatService.send(member.getId(), group.getId(),
+                new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "나 탈퇴 전 메시지", null, null));
+        ChatDtos.ChatMessageResponse quoteMessage = chatService.send(owner.getId(), group.getId(),
+                new ChatDtos.SendMessageRequest(ChatMessageType.DRAWING_QUOTE, "이 그림 좋다", drawing.getId(), null));
+        ChatDtos.ChatMessageResponse replyMessage = chatService.send(owner.getId(), group.getId(),
+                new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "답장도 남아야 함", null, memberMessage.id()));
+
+        userService.deleteMe(member.getId());
+
+        var messages = chatService.messages(owner.getId(), group.getId(), null, 30).messages();
+        assertThat(messages).extracting("id").doesNotContain(memberMessage.id());
+        assertThat(messages)
+                .filteredOn(message -> message.id().equals(quoteMessage.id()))
+                .singleElement()
+                .extracting("quote")
+                .isNull();
+        assertThat(messages)
+                .filteredOn(message -> message.id().equals(replyMessage.id()))
+                .singleElement()
+                .extracting("replyTo")
+                .isNull();
     }
 
     private User user(String prefix) {

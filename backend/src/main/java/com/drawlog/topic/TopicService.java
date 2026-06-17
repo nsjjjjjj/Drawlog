@@ -72,7 +72,7 @@ public class TopicService {
         return dailyTopicRepository.save(topic);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<TopicDtos.SuggestionResponse> suggestions(Long userId, Long groupId, LocalDate targetDate) {
         groupService.requireGroup(userId, groupId);
         Map<Long, Long> voteCounts = voteRepository.countBySuggestionForDate(groupId, targetDate).stream()
@@ -131,7 +131,7 @@ public class TopicService {
         return new TopicDtos.MyVoteResponse(suggestion.getId());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TopicDtos.MyVoteResponse myVote(Long userId, Long groupId, LocalDate targetDate) {
         groupService.requireGroup(userId, groupId);
         return new TopicDtos.MyVoteResponse(voteRepository.findByGroupIdAndUserIdAndTargetDate(groupId, userId, targetDate)

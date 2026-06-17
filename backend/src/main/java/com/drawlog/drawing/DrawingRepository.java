@@ -10,6 +10,8 @@ public interface DrawingRepository extends JpaRepository<Drawing, Long> {
     Optional<Drawing> findByGroupIdAndDailyTopicIdAndUserId(Long groupId, Long dailyTopicId, Long userId);
     boolean existsByGroupIdAndDailyTopicTopicDateAndUserId(Long groupId, java.time.LocalDate topicDate, Long userId);
     List<Drawing> findByGroupIdAndDailyTopicId(Long groupId, Long dailyTopicId);
+    List<Drawing> findByGroupId(Long groupId);
+    List<Drawing> findByUserId(Long userId);
     List<Drawing> findByDailyTopicTopicDateBeforeAndLockedAtIsNull(java.time.LocalDate date);
     boolean existsByGroupIdAndDailyTopicIdAndUserId(Long groupId, Long dailyTopicId, Long userId);
 

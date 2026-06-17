@@ -9,6 +9,7 @@ import com.drawlog.group.GroupService;
 import com.drawlog.notification.NotificationService;
 import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
+import com.drawlog.user.UserStatus;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -33,7 +34,7 @@ public class ChatService {
         this.notificationService = notificationService;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ChatDtos.ChatPageResponse messages(Long userId, Long groupId, Long cursor, int size) {
         FriendGroup group = groupService.requireGroup(userId, groupId);
         int pageSize = Math.min(Math.max(size, 1), 50);
@@ -93,25 +94,28 @@ public class ChatService {
                 imageUrl,
                 imageUrl,
                 imageUrl,
-                drawing.getUser().getNickname(),
+                username(drawing.getUser()),
                 drawing.getDailyTopic().getText()
         );
         ChatDtos.ReplyToMessageResponse replyTo = null;
         ChatMessage replyToMessage = message.getReplyToMessage();
         if (replyToMessage != null && replyToMessage.getDeletedAt() == null) {
+            User replySender = replyToMessage.getSender();
             replyTo = new ChatDtos.ReplyToMessageResponse(
                     replyToMessage.getId(),
-                    replyToMessage.getSender().getId(),
-                    replyToMessage.getSender().getNickname(),
+                    replySender == null ? null : replySender.getId(),
+                    username(replySender),
                     replyToMessage.getContent(),
                     replyToMessage.getCreatedAt()
             );
         }
+        User sender = message.getSender();
         return new ChatDtos.ChatMessageResponse(
                 message.getId(),
                 message.getGroup().getId(),
-                message.getSender().getId(),
-                message.getSender().getNickname(),
+                sender == null ? null : sender.getId(),
+                username(sender),
+                profileImageUrl(sender),
                 message.getType(),
                 message.getDeletedAt() == null ? message.getContent() : "삭제된 메시지입니다.",
                 drawing == null ? null : drawing.getId(),
@@ -119,5 +123,13 @@ public class ChatService {
                 message.getCreatedAt(),
                 quote
         );
+    }
+
+    private String username(User user) {
+        return user == null || user.getStatus() == UserStatus.DELETED ? "알 수 없는 사용자" : user.getNickname();
+    }
+
+    private String profileImageUrl(User user) {
+        return user == null || user.getStatus() == UserStatus.DELETED ? null : user.getProfileImageUrl();
     }
 }

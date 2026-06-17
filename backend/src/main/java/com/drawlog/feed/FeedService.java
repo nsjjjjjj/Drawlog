@@ -11,6 +11,7 @@ import com.drawlog.group.GroupService;
 import com.drawlog.topic.DailyTopic;
 import com.drawlog.topic.DailyTopicRepository;
 import com.drawlog.topic.TopicService;
+import com.drawlog.user.UserStatus;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -59,11 +60,12 @@ public class FeedService {
                 (hasRecords || (date.equals(today) && topic != null)) ? topicService.toResponse(topic) : null,
                 submitted,
                 locked,
-                memberRepository.findByGroupIdOrderByJoinedAtAsc(groupId).stream()
+                memberRepository.findByGroupIdAndUserStatusOrderByJoinedAtAsc(groupId, UserStatus.ACTIVE).stream()
                         .map(member -> new FeedDtos.MemberDrawingResponse(
                                 member.getUser().getId(),
                                 member.getUser().getNickname(),
                                 member.getUser().getProfileImageUrl(),
+                                member.getUser().getStatus(),
                                 member.getRole(),
                                 member.getJoinedAt(),
                                 locked ? null : drawingService.toResponse(drawingByUser.get(member.getUser().getId()))
@@ -72,7 +74,7 @@ public class FeedService {
         );
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public FeedDtos.FeedDatesResponse dates(Long userId, Long groupId) {
         groupService.requireGroup(userId, groupId);
         return new FeedDtos.FeedDatesResponse(drawingRepository.findRecordDates(groupId, today()));

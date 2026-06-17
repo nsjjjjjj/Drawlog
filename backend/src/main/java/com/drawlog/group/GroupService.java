@@ -7,9 +7,11 @@ import com.drawlog.topic.DailyTopic;
 import com.drawlog.topic.DailyTopicRepository;
 import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
+import com.drawlog.user.UserStatus;
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,44 +63,55 @@ public class GroupService {
         User user = user(userId);
         FriendGroup group = groupRepository.findByInviteCode(inviteCode.trim().toUpperCase())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "초대코드를 찾을 수 없습니다."));
-        if (memberRepository.existsByGroupIdAndUserId(group.getId(), userId)) return group;
-        if (memberRepository.countByGroupId(group.getId()) >= group.getMaxMembers()) throw new ApiException(ErrorCode.GROUP_FULL);
+        repairGroupMemberships(group.getId());
+        if (memberRepository.existsByGroupIdAndUserIdAndUserStatus(group.getId(), userId, UserStatus.ACTIVE)) return group;
+        if (memberRepository.countByGroupIdAndUserStatus(group.getId(), UserStatus.ACTIVE) >= group.getMaxMembers()) {
+            throw new ApiException(ErrorCode.GROUP_FULL);
+        }
         addMember(group, user, MemberRole.MEMBER);
         return group;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public FriendGroup requireGroup(Long userId, Long groupId) {
         FriendGroup group = groupRepository.findById(groupId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "그룹을 찾을 수 없습니다."));
-        if (!memberRepository.existsByGroupIdAndUserId(groupId, userId)) throw new ApiException(ErrorCode.NOT_GROUP_MEMBER);
+        if (!memberRepository.existsByGroupIdAndUserIdAndUserStatus(groupId, userId, UserStatus.ACTIVE)) {
+            throw new ApiException(ErrorCode.NOT_GROUP_MEMBER);
+        }
+        repairGroupMemberships(groupId);
         return group;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public GroupMember requireMembership(Long userId, Long groupId) {
-        return memberRepository.findByGroupIdAndUserId(groupId, userId)
+        repairGroupMemberships(groupId);
+        return memberRepository.findByGroupIdAndUserIdAndUserStatus(groupId, userId, UserStatus.ACTIVE)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_GROUP_MEMBER));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public FriendGroup requireOwner(Long userId, Long groupId) {
         GroupMember member = requireMembership(userId, groupId);
         if (member.getRole() != MemberRole.OWNER) throw new ApiException(ErrorCode.FORBIDDEN, "방장만 할 수 있습니다.");
         return member.getGroup();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<FriendGroup> groupsForUser(Long userId) {
-        return memberRepository.findByUserIdOrderByJoinedAtAsc(userId).stream().map(GroupMember::getGroup).toList();
+        List<FriendGroup> groups = memberRepository.findByUserIdAndUserStatusOrderByJoinedAtAsc(userId, UserStatus.ACTIVE).stream()
+                .map(GroupMember::getGroup)
+                .toList();
+        groups.forEach(group -> repairGroupMemberships(group.getId()));
+        return groups;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<GroupDtos.GroupDetailResponse> groupDetailsForUser(Long userId) {
         List<FriendGroup> groups = groupsForUser(userId);
         if (groups.isEmpty()) return List.of();
         List<Long> groupIds = groups.stream().map(FriendGroup::getId).toList();
-        Map<Long, List<GroupDtos.MemberResponse>> membersByGroup = memberRepository.findMembersForGroups(groupIds).stream()
+        Map<Long, List<GroupDtos.MemberResponse>> membersByGroup = memberRepository.findMembersForGroups(groupIds, UserStatus.ACTIVE).stream()
                 .collect(Collectors.groupingBy(
                         member -> member.getGroup().getId(),
                         LinkedHashMap::new,
@@ -109,10 +122,10 @@ public class GroupService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<GroupDtos.MemberResponse> members(Long userId, Long groupId) {
         requireGroup(userId, groupId);
-        return memberRepository.findByGroupIdOrderByJoinedAtAsc(groupId).stream()
+        return memberRepository.findByGroupIdAndUserStatusOrderByJoinedAtAsc(groupId, UserStatus.ACTIVE).stream()
                 .map(this::toMemberResponse)
                 .toList();
     }
@@ -135,7 +148,7 @@ public class GroupService {
         FriendGroup group = requireOwner(userId, groupId);
         group.setName(name);
         if (maxMembers != null) {
-            long currentMembers = memberRepository.countByGroupId(groupId);
+            long currentMembers = memberRepository.countByGroupIdAndUserStatus(groupId, UserStatus.ACTIVE);
             if (maxMembers < currentMembers) {
                 throw new ApiException(ErrorCode.BAD_REQUEST, "현재 멤버 수보다 작은 최대 인원은 선택할 수 없습니다.");
             }
@@ -148,7 +161,7 @@ public class GroupService {
     public void transferOwner(Long ownerId, Long groupId, Long targetUserId) {
         GroupMember owner = requireMembership(ownerId, groupId);
         if (owner.getRole() != MemberRole.OWNER) throw new ApiException(ErrorCode.FORBIDDEN, "방장만 할 수 있습니다.");
-        GroupMember target = memberRepository.findByGroupIdAndUserId(groupId, targetUserId)
+        GroupMember target = memberRepository.findByGroupIdAndUserIdAndUserStatus(groupId, targetUserId, UserStatus.ACTIVE)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_GROUP_MEMBER));
         owner.setRole(MemberRole.MEMBER);
         target.setRole(MemberRole.OWNER);
@@ -157,7 +170,7 @@ public class GroupService {
     @Transactional
     public void leave(Long userId, Long groupId) {
         GroupMember member = requireMembership(userId, groupId);
-        if (member.getRole() == MemberRole.OWNER && memberRepository.countByGroupId(groupId) > 1) {
+        if (member.getRole() == MemberRole.OWNER && memberRepository.countByGroupIdAndUserStatus(groupId, UserStatus.ACTIVE) > 1) {
             throw new ApiException(ErrorCode.OWNER_TRANSFER_REQUIRED);
         }
         memberRepository.delete(member);
@@ -166,7 +179,7 @@ public class GroupService {
     @Transactional
     public void removeMember(Long ownerId, Long groupId, Long targetUserId) {
         requireOwner(ownerId, groupId);
-        GroupMember member = memberRepository.findByGroupIdAndUserId(groupId, targetUserId)
+        GroupMember member = memberRepository.findByGroupIdAndUserIdAndUserStatus(groupId, targetUserId, UserStatus.ACTIVE)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_GROUP_MEMBER));
         if (member.getRole() == MemberRole.OWNER) throw new ApiException(ErrorCode.FORBIDDEN, "방장은 내보낼 수 없습니다.");
         memberRepository.delete(member);
@@ -180,18 +193,48 @@ public class GroupService {
         memberRepository.save(member);
     }
 
+    private void repairGroupMemberships(Long groupId) {
+        List<GroupMember> memberships = memberRepository.findByGroupIdOrderByJoinedAtAsc(groupId);
+        if (memberships.isEmpty()) return;
+
+        List<GroupMember> activeMembers = new ArrayList<>();
+        List<GroupMember> deletedMembers = new ArrayList<>();
+        for (GroupMember member : memberships) {
+            if (member.getUser().getStatus() == UserStatus.ACTIVE) {
+                activeMembers.add(member);
+            } else {
+                deletedMembers.add(member);
+            }
+        }
+
+        if (!deletedMembers.isEmpty()) {
+            memberRepository.deleteAll(deletedMembers);
+            memberRepository.flush();
+        }
+        if (activeMembers.isEmpty()) return;
+
+        boolean hasActiveOwner = activeMembers.stream().anyMatch(member -> member.getRole() == MemberRole.OWNER);
+        if (!hasActiveOwner) {
+            activeMembers.get(0).setRole(MemberRole.OWNER);
+            memberRepository.flush();
+        }
+    }
+
     private GroupDtos.MemberResponse toMemberResponse(GroupMember member) {
         return new GroupDtos.MemberResponse(
                 member.getUser().getId(),
                 member.getUser().getNickname(),
                 member.getUser().getProfileImageUrl(),
+                member.getUser().getStatus(),
                 member.getRole(),
                 member.getJoinedAt()
         );
     }
 
     private User user(Long userId) {
-        return userRepository.findById(userId).orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
+        return userRepository.findById(userId)
+                .filter(found -> found.getStatus() == UserStatus.ACTIVE)
+                .orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
     }
 
     private String newInviteCode() {

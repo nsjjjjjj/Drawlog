@@ -3,6 +3,7 @@ package com.drawlog.feed;
 import com.drawlog.drawing.DrawingDtos;
 import com.drawlog.group.MemberRole;
 import com.drawlog.topic.TopicDtos;
+import com.drawlog.user.UserStatus;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -12,6 +13,7 @@ public class FeedDtos {
             Long userId,
             String nickname,
             String profileImageUrl,
+            UserStatus status,
             MemberRole role,
             Instant joinedAt,
             DrawingDtos.DrawingResponse drawing
