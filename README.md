@@ -92,6 +92,10 @@ docker compose up --build
 - 그림 삭제 API는 제거했습니다.
 - 미제출자는 당일 피드가 잠기고, 제출자는 당일 피드를 바로 볼 수 있습니다.
 - 다음날이 되면 피드가 공개됩니다.
+- 피드 날짜 조회는 DailyTopic을 자동 생성하지 않습니다.
+- 그림이 없는 날짜는 랜덤 주제를 만들지 않고 “아직 아무도 그림을 올리지 않았어요.” 상태로 표시합니다.
+- 미래 날짜 피드 조회는 허용하지 않습니다.
+- 날짜 달력에서는 실제 그림 기록이 존재하는 날짜만 선택할 수 있고, 좌우 화살표는 하루 단위로 이동합니다.
 - 채팅은 REST API + polling 방식입니다.
 - 그림 인용 댓글은 별도 댓글 테이블 없이 `DRAWING_QUOTE` 타입의 채팅 메시지로 처리합니다.
 - 채팅 삭제는 하드 삭제가 아니라 `deleted_at` 기록입니다.
@@ -158,6 +162,7 @@ docker compose up --build
 | `POST` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 제출, multipart `image` |
 | `PUT` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 수정, multipart `image` |
 | `GET` | `/api/groups/{groupId}/feed?date=YYYY-MM-DD` | 날짜별 피드 |
+| `GET` | `/api/groups/{groupId}/feed/dates` | 그림 기록이 존재하는 날짜 목록 |
 | `GET` | `/api/groups/{groupId}/chats?cursor=...&size=30` | 채팅 조회 |
 | `POST` | `/api/groups/{groupId}/chats` | 채팅 작성 |
 | `DELETE` | `/api/groups/{groupId}/chats/{messageId}` | 채팅 소프트 삭제 |

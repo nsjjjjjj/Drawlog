@@ -24,4 +24,6 @@ public class FeedDtos {
             boolean feedLocked,
             List<MemberDrawingResponse> members
     ) {}
+
+    public record FeedDatesResponse(List<LocalDate> dates) {}
 }

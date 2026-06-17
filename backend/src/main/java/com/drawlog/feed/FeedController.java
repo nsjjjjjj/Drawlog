@@ -25,4 +25,12 @@ public class FeedController {
     ) {
         return feedService.feed(user.id(), groupId, date);
     }
+
+    @GetMapping("/api/groups/{groupId}/feed/dates")
+    public FeedDtos.FeedDatesResponse dates(
+            @AuthenticationPrincipal CurrentUser user,
+            @PathVariable Long groupId
+    ) {
+        return feedService.dates(user.id(), groupId);
+    }
 }

@@ -573,19 +573,97 @@ h2 {
   white-space: nowrap;
 }
 
-.date-nav .today-button {
-  min-width: 58px;
+.date-picker-card {
+  position: absolute;
+  left: 42px;
+  top: calc(100% + 8px);
+  z-index: 25;
+  width: min(300px, calc(100dvw - 24px));
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #ddd6ca;
+  border-radius: 8px;
+  background: #fffdf8;
+  box-shadow: 0 18px 46px rgba(53, 48, 39, 0.18);
 }
 
-.date-nav input[type="date"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  min-height: 1px;
+.date-picker-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-picker-head strong {
+  justify-self: center;
+  color: #202124;
+  font-size: 14px;
+  font-weight: 1000;
+}
+
+.date-picker-head button {
+  min-width: 34px;
+  min-height: 34px;
   padding: 0;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
+}
+
+.date-picker-weekdays,
+.date-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.date-picker-weekdays span {
+  color: #8f8a81;
+  font-size: 11px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.date-picker-grid button,
+.date-picker-grid span {
+  min-width: 0;
+  min-height: 34px;
+}
+
+.date-picker-grid button {
+  padding: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 1000;
+}
+
+.date-picker-grid button:not(:disabled) {
+  border-color: #315f45;
+  background: #315f45;
+  color: #fffdf8;
+  box-shadow: 0 4px 10px rgba(49, 95, 69, 0.18);
+}
+
+.date-picker-grid button:not(:disabled):hover {
+  background: #254c37;
+}
+
+.date-picker-grid button.selected:not(:disabled) {
+  border-color: #315f45;
+  background: #203c2e;
+  color: #fffdf8;
+  box-shadow: 0 0 0 2px #b9d8c3 inset, 0 5px 12px rgba(49, 95, 69, 0.2);
+}
+
+.date-picker-grid button:disabled {
+  background: #f5f3ee;
+  color: #b7b0a5;
+  opacity: 1;
+}
+
+.date-picker-card p {
+  color: #7b766d;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .invite-band {
@@ -1368,11 +1446,16 @@ h2 {
   .date-nav {
     width: 100%;
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) 42px 58px;
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
   }
 
   .date-nav .date-display {
     min-width: 0;
+  }
+
+  .date-picker-card {
+    left: 0;
+    width: min(300px, 100%);
   }
 
   .suggestion-row {
@@ -1471,16 +1554,12 @@ h2 {
   }
 
   .date-nav {
-    grid-template-columns: 38px minmax(0, 1fr) 38px 50px;
+    grid-template-columns: 38px minmax(0, 1fr) 38px;
   }
 
   .date-nav button {
     min-width: 38px;
     padding: 0 8px;
-  }
-
-  .date-nav .today-button {
-    min-width: 50px;
   }
 
   .toolbar input[type="range"] {
@@ -1513,6 +1592,20 @@ h2 {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   padding-bottom: 16px;
+}
+
+.setlog-room:not(.chat-mode),
+.setlog-room:not(.chat-mode) .room-dashboard,
+.setlog-room:not(.chat-mode) .activity-column,
+.setlog-room:not(.chat-mode) .member-board {
+  max-height: none;
+  overflow: visible;
+}
+
+.setlog-room:not(.chat-mode) {
+  height: auto;
+  min-height: 100dvh;
+  grid-template-rows: auto auto auto auto auto;
 }
 
 .setlog-room-header {
@@ -1891,18 +1984,24 @@ h2 {
   margin-top: 0;
 }
 
-.setlog-topic-card {
-  min-height: 82px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  padding: 12px 16px;
+.topic-hub-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 11px 12px 9px;
   border: 1px solid #ddd6ca;
   border-radius: 8px;
   background: #fffdf8;
   box-shadow: 0 14px 38px rgba(53, 48, 39, 0.08);
 }
 
-.setlog-topic-card p {
+.topic-hub-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.topic-hub-main p {
   color: #4f7355;
   font-size: 12px;
   font-weight: 900;
@@ -1910,39 +2009,119 @@ h2 {
   text-transform: uppercase;
 }
 
-.setlog-topic-card h1 {
-  margin-top: 5px;
+.topic-hub-main h1 {
+  min-width: 0;
+  overflow: hidden;
   color: #202124;
-  font-size: clamp(22px, 5.4vw, 32px);
+  font-size: clamp(20px, 4.8vw, 28px);
   line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.topic-face {
-  width: 62px;
-  height: 62px;
+.topic-hub-action {
+  width: 100%;
+  min-height: 34px;
   display: grid;
-  place-items: center;
-  border: 2px solid #7c967d;
-  border-radius: 50%;
-  background: #dfeadf;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 2px 0;
+  border: 0;
+  border-top: 1px solid #eee8dc;
+  border-radius: 0;
+  background: transparent;
   color: #315f45;
-  font-size: 20px;
+  text-align: left;
+}
+
+.topic-hub-action:hover {
+  background: transparent;
+  color: #264c38;
+}
+
+.topic-hub-action span {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.topic-hub-action small {
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: #6f8f72;
+  font-size: 10px;
   font-weight: 1000;
-  transform: rotate(90deg);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.topic-hub-action strong {
+  overflow: hidden;
+  color: #315f45;
+  font-size: 13px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .room-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: 0;
   align-items: start;
+}
+
+.room-topic-screen {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.topic-vote-screen-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #ddd6ca;
+  border-radius: 8px;
+  background: #fffdf8;
+  box-shadow: 0 14px 38px rgba(53, 48, 39, 0.08);
+}
+
+.topic-screen-title {
+  display: grid;
+  gap: 4px;
+}
+
+.topic-screen-title h1 {
+  color: #202124;
+  font-size: 22px;
+  line-height: 1.12;
+}
+
+.topic-vote-screen-card .suggestion-panel {
+  display: grid;
+  gap: 9px;
+}
+
+.topic-vote-screen-card .suggestion-row {
+  grid-template-columns: minmax(0, 1fr) 40px 40px;
+}
+
+.topic-vote-screen-card .candidate-list {
+  margin-top: 0;
 }
 
 .setlog-room .date-nav {
   min-width: 0;
   width: 100%;
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 40px 58px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   gap: 6px;
 }
 
@@ -2231,6 +2410,39 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.feed-lock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid #ddd6ca;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: #315f45;
+  box-shadow: 0 8px 22px rgba(53, 48, 39, 0.06);
+}
+
+.empty-feed-state {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border: 1px dashed #ddd6ca;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: #7b766d;
+  text-align: center;
+}
+
+.empty-feed-state strong {
+  color: #4f473e;
+  font-size: 15px;
+  font-weight: 1000;
 }
 
 .notification-modal {
@@ -2538,8 +2750,16 @@ h2 {
   }
 
   .setlog-room:not(.chat-mode) {
-    grid-template-rows: auto auto auto auto;
+    grid-template-rows: auto auto auto auto auto;
     padding-bottom: 88px;
+  }
+
+  .setlog-room:not(.chat-mode),
+  .setlog-room:not(.chat-mode) .room-dashboard,
+  .setlog-room:not(.chat-mode) .activity-column,
+  .setlog-room:not(.chat-mode) .member-board {
+    max-height: none;
+    overflow: visible;
   }
 
   .setlog-room.chat-mode {
@@ -2581,15 +2801,19 @@ h2 {
     padding: 0 14px;
   }
 
-  .setlog-topic-card {
-    min-height: 78px;
-    padding: 12px 14px;
+  .topic-hub-card {
+    gap: 7px;
+    padding: 10px 11px 8px;
     border-radius: 8px;
   }
 
-  .topic-face {
-    width: 56px;
-    height: 56px;
+  .topic-hub-main h1 {
+    font-size: clamp(19px, 5vw, 25px);
+  }
+
+  .topic-hub-action {
+    min-height: 32px;
+    padding-top: 7px;
   }
 
   .room-tools {

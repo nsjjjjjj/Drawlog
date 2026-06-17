@@ -9,11 +9,9 @@ import com.drawlog.chat.ChatMessageType;
 import com.drawlog.chat.ChatService;
 import com.drawlog.common.ApiException;
 import com.drawlog.common.ErrorCode;
-import com.drawlog.auth.RefreshToken;
-import com.drawlog.auth.RefreshTokenRepository;
-import com.drawlog.config.AppProperties;
 import com.drawlog.drawing.Drawing;
 import com.drawlog.drawing.DrawingController;
+import com.drawlog.drawing.DrawingRepository;
 import com.drawlog.drawing.DrawingService;
 import com.drawlog.feed.FeedService;
 import com.drawlog.group.FriendGroup;
@@ -52,6 +50,7 @@ class DrawlogPolicyIntegrationTest {
     @Autowired TopicService topicService;
     @Autowired DrawingService drawingService;
     @Autowired FeedService feedService;
+    @Autowired DrawingRepository drawingRepository;
     @Autowired ChatService chatService;
     @Autowired UserService userService;
     @Autowired UserRepository userRepository;
@@ -225,6 +224,53 @@ class DrawlogPolicyIntegrationTest {
     }
 
     @Test
+    void emptyFeedDateDoesNotCreateDailyTopic() {
+        User owner = user("empty-feed-owner");
+        FriendGroup group = groupService.createGroup(owner.getId(), "빈날방", 6, null);
+        LocalDate emptyDate = LocalDate.now().minusDays(3);
+
+        assertThat(dailyTopicRepository.findByGroupIdAndTopicDate(group.getId(), emptyDate)).isEmpty();
+
+        var feed = feedService.feed(owner.getId(), group.getId(), emptyDate);
+
+        assertThat(feed.dailyTopic()).isNull();
+        assertThat(feed.members()).hasSize(1);
+        assertThat(feed.members().get(0).drawing()).isNull();
+        assertThat(dailyTopicRepository.findByGroupIdAndTopicDate(group.getId(), emptyDate)).isEmpty();
+    }
+
+    @Test
+    void futureFeedDateIsRejectedAndDoesNotCreateDailyTopic() {
+        User owner = user("future-feed-owner");
+        FriendGroup group = groupService.createGroup(owner.getId(), "미래방", 6, null);
+        LocalDate future = LocalDate.now().plusDays(1);
+
+        assertThatThrownBy(() -> feedService.feed(owner.getId(), group.getId(), future))
+                .isInstanceOf(ApiException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.BAD_REQUEST);
+        assertThat(dailyTopicRepository.findByGroupIdAndTopicDate(group.getId(), future)).isEmpty();
+    }
+
+    @Test
+    void feedDatesOnlyIncludeDatesThatHaveDrawings() {
+        User owner = user("record-date-owner");
+        FriendGroup group = groupService.createGroup(owner.getId(), "기록날방", 6, null);
+        LocalDate first = LocalDate.now().minusDays(7);
+        LocalDate empty = LocalDate.now().minusDays(6);
+        LocalDate second = LocalDate.now().minusDays(5);
+        saveDrawing(owner, group, first, "첫 기록");
+        DailyTopic emptyTopic = new DailyTopic();
+        emptyTopic.setGroup(group);
+        emptyTopic.setTopicDate(empty);
+        emptyTopic.setText("빈 날짜");
+        dailyTopicRepository.save(emptyTopic);
+        saveDrawing(owner, group, second, "둘 기록");
+
+        assertThat(feedService.dates(owner.getId(), group.getId()).dates()).contains(first, second).doesNotContain(empty);
+    }
+
+    @Test
     void chatDeleteSoftDeletesMessage() {
         User owner = user("chat-owner");
         FriendGroup group = groupService.createGroup(owner.getId(), "채팅방", 6, null);
@@ -341,5 +387,19 @@ class DrawlogPolicyIntegrationTest {
 
     private MockMultipartFile thumbnail() {
         return new MockMultipartFile("thumbnail", "drawing.webp", "image/webp", new byte[] {1, 2, 3});
+    }
+
+    private void saveDrawing(User user, FriendGroup group, LocalDate date, String topicText) {
+        DailyTopic topic = new DailyTopic();
+        topic.setGroup(group);
+        topic.setTopicDate(date);
+        topic.setText(topicText);
+        dailyTopicRepository.save(topic);
+        Drawing drawing = new Drawing();
+        drawing.setUser(user);
+        drawing.setGroup(group);
+        drawing.setDailyTopic(topic);
+        drawing.setImagePath("/uploads/" + topicText + ".webp");
+        drawingRepository.save(drawing);
     }
 }
