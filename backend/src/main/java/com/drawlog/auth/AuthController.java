@@ -24,6 +24,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -84,15 +85,30 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public AuthDtos.AuthResponse refresh(HttpServletRequest request) {
+    @Transactional(noRollbackFor = ApiException.class)
+    public AuthDtos.AuthResponse refresh(HttpServletRequest request, HttpServletResponse response) {
         String raw = refreshCookie(request).orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
-        RefreshToken token = refreshTokenRepository.findByTokenHashAndRevokedAtIsNull(hash(raw))
-                .filter(found -> found.getExpiresAt().isAfter(Instant.now()))
+        Instant now = Instant.now();
+        RefreshToken token = refreshTokenRepository.findByTokenHash(hash(raw))
                 .orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
-        User user = token.getUser();
-        if (user.getStatus() != UserStatus.ACTIVE) {
+        if (token.getRevokedAt() != null) {
+            revokeActiveTokens(token.getUser(), now);
             throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
+        if (!token.getExpiresAt().isAfter(now)) {
+            token.setRevokedAt(now);
+            refreshTokenRepository.save(token);
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
+        }
+        User user = token.getUser();
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            token.setRevokedAt(now);
+            refreshTokenRepository.save(token);
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
+        }
+        token.setRevokedAt(now);
+        refreshTokenRepository.save(token);
+        issueRefreshCookie(user, response);
         return toResponse(user);
     }
 
@@ -131,6 +147,13 @@ public class AuthController {
         token.setExpiresAt(Instant.now().plusMillis(properties.getRefreshTokenExpirationMs()));
         refreshTokenRepository.save(token);
         response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(raw, properties.getRefreshTokenExpirationMs() / 1000).toString());
+    }
+
+    private void revokeActiveTokens(User user, Instant now) {
+        refreshTokenRepository.findByUserIdAndRevokedAtIsNull(user.getId()).forEach(token -> {
+            token.setRevokedAt(now);
+            refreshTokenRepository.save(token);
+        });
     }
 
     private ResponseCookie refreshCookie(String value, long maxAgeSeconds) {

@@ -24,8 +24,8 @@ import {
   Vote,
   X,
 } from 'lucide-react';
+import { request } from './apiClient.js';
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const CANVAS_HISTORY_LIMIT = 30;
 const CANVAS_INPUT_STYLE = {
   touchAction: 'none',
@@ -111,45 +111,6 @@ function monthDates(month) {
 function inviteFromUrl() {
   const pathMatch = window.location.pathname.match(/^\/invite\/([^/]+)/);
   return pathMatch?.[1] || new URLSearchParams(window.location.search).get('invite') || '';
-}
-
-async function parseResponse(response) {
-  if (response.status === 204) return null;
-  const raw = await response.text();
-  return raw ? JSON.parse(raw) : null;
-}
-
-async function request(path, options = {}, auth = null, onAuth = null) {
-  const token = typeof auth === 'string' ? auth : auth?.token;
-  const buildOptions = (accessToken) => {
-    const headers = { ...(options.headers || {}) };
-    if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-    return { ...options, headers, credentials: 'include' };
-  };
-
-  let response = await fetch(`${API_BASE}${path}`, buildOptions(token));
-  if (response.status === 401 && onAuth) {
-    const refreshed = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include' });
-    if (refreshed.ok) {
-      const nextAuth = await parseResponse(refreshed);
-      onAuth(nextAuth);
-      response = await fetch(`${API_BASE}${path}`, buildOptions(nextAuth.token));
-    }
-  }
-  if (!response.ok) {
-    const raw = await response.text();
-    let message = response.statusText;
-    if (raw) {
-      try {
-        const body = JSON.parse(raw);
-        message = body.message || body.code || raw;
-      } catch {
-        message = raw;
-      }
-    }
-    throw new Error(message || '요청에 실패했습니다.');
-  }
-  return parseResponse(response);
 }
 
 function drawingImageUrl(drawing) {
@@ -274,7 +235,7 @@ function DateNavigator({ date, onChange, selectableDates = [] }) {
   );
 }
 
-function AuthView({ onAuth }) {
+function AuthView({ onAuth, notice }) {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ nickname: '', email: '', password: '' });
   const [error, setError] = useState('');
@@ -321,6 +282,7 @@ function AuthView({ onAuth }) {
             비밀번호
             <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required minLength={6} />
           </label>
+          {notice && <p className="notice">{notice}</p>}
           {error && <p className="error">{error}</p>}
           <button className="primary" type="submit">{mode === 'login' ? '로그인' : '가입하고 시작'}</button>
         </form>
@@ -1909,10 +1871,6 @@ export default function App() {
   const [lobbyComposerOpen, setLobbyComposerOpen] = useState(() => Boolean(inviteFromUrl()));
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [authNotice, setAuthNotice] = useState('');
-  const [installGuideOpen, setInstallGuideOpen] = useState(false);
-  const [autoInstallGuideShown, setAutoInstallGuideShown] = useState(false);
-  const [standaloneMode, setStandaloneMode] = useState(() => isStandaloneMode());
-  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
 
   useEffect(() => {
     // Drop stale mobile PWA caches from previous local installs.
@@ -1928,61 +1886,14 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    const updateStandaloneMode = () => setStandaloneMode(isStandaloneMode());
-    const media = window.matchMedia?.('(display-mode: standalone)');
-    updateStandaloneMode();
-    media?.addEventListener?.('change', updateStandaloneMode);
-    media?.addListener?.(updateStandaloneMode);
-    return () => {
-      media?.removeEventListener?.('change', updateStandaloneMode);
-      media?.removeListener?.(updateStandaloneMode);
-    };
-  }, []);
-
-  useEffect(() => {
-    function handleBeforeInstallPrompt(event) {
-      event.preventDefault();
-      setDeferredInstallPrompt(event);
-    }
-
-    function handleAppInstalled() {
-      setDeferredInstallPrompt(null);
-      setInstallGuideOpen(false);
-      setStandaloneMode(isStandaloneMode());
-    }
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!auth) {
-      setAutoInstallGuideShown(false);
-      setInstallGuideOpen(false);
-    }
-  }, [auth]);
-
-  useEffect(() => {
-    if (!auth || standaloneMode || autoInstallGuideShown) return;
-    if (localStorage.getItem(INSTALL_GUIDE_DISMISSED_KEY) === 'true') return;
-    const timer = window.setTimeout(() => {
-      setAutoInstallGuideShown(true);
-      setInstallGuideOpen(true);
-    }, selectedGroupId ? 600 : 900);
-    return () => window.clearTimeout(timer);
-  }, [auth, selectedGroupId, standaloneMode, autoInstallGuideShown]);
-
   function setAuth(nextAuth, options = {}) {
     setAuthState(nextAuth);
     if (nextAuth) {
       localStorage.setItem('drawlog.auth', JSON.stringify(nextAuth));
+      setAuthNotice('');
     } else {
       localStorage.removeItem('drawlog.auth');
+      setAuthNotice(options.expired ? '로그인이 만료되었습니다. 다시 로그인해주세요.' : '');
     }
   }
 
@@ -2068,7 +1979,7 @@ export default function App() {
     />
   ) : null;
 
-  if (!auth) return <AuthView onAuth={setAuth} />;
+  if (!auth) return <AuthView onAuth={setAuth} notice={authNotice} />;
 
   if (!selectedGroup) {
     return (

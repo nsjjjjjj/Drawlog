@@ -56,8 +56,14 @@ docker compose up --build
 
 - Access Token은 30분 동안 유효하고 JSON 응답 body로 내려갑니다.
 - Refresh Token은 14일 동안 유효하고 HttpOnly 쿠키로만 저장됩니다.
-- `POST /api/auth/refresh`는 쿠키의 Refresh Token으로 새 Access Token을 발급합니다.
+- `POST /api/auth/refresh`는 Refresh Token Rotation 방식으로 동작합니다.
+  - 기존 Refresh Token을 검증한 뒤 `revoked_at`으로 폐기합니다.
+  - 새 Refresh Token을 HttpOnly 쿠키로 다시 내려줍니다.
+  - 새 Access Token을 JSON 응답 body로 내려줍니다.
+  - 이미 폐기된 Refresh Token이 다시 사용되면 401을 반환하고 해당 사용자의 활성 Refresh Token도 폐기합니다.
 - `POST /api/auth/logout`은 Refresh Token을 무효화하고 쿠키를 삭제합니다.
+- 앱을 계속 사용하면 refresh 시점마다 Refresh Token 만료가 다시 14일로 연장됩니다.
+- 14일 이상 앱을 사용하지 않으면 Refresh Token이 만료되어 다시 로그인해야 합니다.
 - 운영 HTTPS에서는 `APP_COOKIE_SECURE=true`로 설정하세요.
 
 ## 그림 저장 구조
@@ -118,7 +124,7 @@ docker compose up --build
 | --- | --- | --- |
 | `POST` | `/api/auth/signup` | 회원가입 |
 | `POST` | `/api/auth/login` | 로그인 |
-| `POST` | `/api/auth/refresh` | Refresh Cookie로 Access Token 재발급 |
+| `POST` | `/api/auth/refresh` | Refresh Cookie 회전 + Access Token 재발급 |
 | `POST` | `/api/auth/logout` | Refresh Token 무효화 |
 | `GET` | `/api/auth/me` | 내 정보 |
 
