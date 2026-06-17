@@ -38,12 +38,24 @@ public class UserService {
     }
 
     @Transactional
+    public UserDtos.UserResponse deleteProfileImage(Long userId) {
+        User user = user(userId);
+        String oldImage = user.getProfileImageUrl();
+        user.setProfileImageUrl(null);
+        if (oldImage != null) storageService.deleteImage(oldImage);
+        return toResponse(user);
+    }
+
+    @Transactional
     public void deleteMe(Long userId) {
         User user = user(userId);
+        String oldImage = user.getProfileImageUrl();
         user.setStatus(UserStatus.DELETED);
         user.setDeletedAt(Instant.now());
         user.setEmail("deleted_user_" + user.getId() + "@drawlog.local");
         user.setNickname("탈퇴한 사용자");
+        user.setProfileImageUrl(null);
+        if (oldImage != null) storageService.deleteImage(oldImage);
         refreshTokenRepository.findByUserIdAndRevokedAtIsNull(userId).forEach(token -> token.setRevokedAt(Instant.now()));
     }
 

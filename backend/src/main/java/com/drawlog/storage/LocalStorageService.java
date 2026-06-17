@@ -20,7 +20,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class LocalStorageService implements StorageService {
-    private static final Logger log = LoggerFactory.getLogger(LocalStorageService.class);
     private static final Set<String> ALLOWED_TYPES = Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
     private final AppProperties properties;
     private final Queue<String> failedDeletes = new ConcurrentLinkedQueue<>();
@@ -77,16 +76,18 @@ public class LocalStorageService implements StorageService {
         }
         String contentType = file.getContentType();
         if (!ALLOWED_TYPES.contains(contentType)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PNG 또는 WebP 이미지만 업로드할 수 있습니다.");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "JPG, PNG 또는 WebP 이미지만 업로드할 수 있습니다.");
         }
         String original = file.getOriginalFilename();
         String lower = original == null ? "" : original.toLowerCase(Locale.ROOT);
-        if (!(lower.endsWith(".png") || lower.endsWith(".webp"))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "파일 확장자는 .png 또는 .webp 이어야 합니다.");
+        if (!(lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png") || lower.endsWith(".webp"))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "파일 확장자는 .jpg, .jpeg, .png 또는 .webp 이어야 합니다.");
         }
     }
 
     private String extensionFor(String contentType) {
-        return "image/webp".equals(contentType) ? "webp" : "png";
+        if ("image/webp".equals(contentType)) return "webp";
+        if ("image/png".equals(contentType)) return "png";
+        return "jpg";
     }
 }

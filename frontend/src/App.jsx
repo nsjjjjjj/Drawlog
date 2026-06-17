@@ -34,6 +34,32 @@ const CANVAS_INPUT_STYLE = {
   WebkitTouchCallout: 'none',
   pointerEvents: 'auto',
 };
+const INSTALL_GUIDE_DISMISSED_KEY = 'drawlog-install-guide-dismissed';
+
+function isStandaloneMode() {
+  return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator?.standalone === true;
+}
+
+function detectInstallGuideMode(hasPrompt) {
+  const ua = window.navigator?.userAgent || '';
+  const platform = window.navigator?.platform || '';
+  const isIOS = /iPad|iPhone|iPod/i.test(ua) || (platform === 'MacIntel' && window.navigator?.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(ua);
+  const isKakao = /KAKAOTALK/i.test(ua);
+  const isNaver = /NAVER/i.test(ua);
+  const isSamsung = /SamsungBrowser/i.test(ua);
+  const isChrome = /Chrome|CriOS/i.test(ua) && !isSamsung && !isKakao && !isNaver;
+  const isSafari = isIOS && /Safari/i.test(ua) && !/CriOS|FxiOS|OPiOS/i.test(ua) && !isKakao && !isNaver;
+
+  if (isStandaloneMode()) return 'standalone';
+  if (isKakao || isNaver) return 'inApp';
+  if (isSamsung) return 'samsung';
+  if (isSafari) return 'iosSafari';
+  if (isAndroid && isChrome && hasPrompt) return 'androidChromePrompt';
+  if (isAndroid && isChrome) return 'androidChromeManual';
+  if (hasPrompt) return 'browserPrompt';
+  return 'default';
+}
 
 function todayString() {
   const now = new Date();
@@ -134,8 +160,78 @@ function quoteImageUrl(quote) {
   return quote?.imageUrl || quote?.imagePath || quote?.thumbnailUrl || '';
 }
 
-function DateNavigator({ date, onChange }) {
-  const inputRef = useRef(null);
+function imageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const url = URL.createObjectURL(file);
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('이미지를 읽지 못했습니다.'));
+    };
+    image.src = url;
+  });
+}
+
+async function resizeProfileImage(file) {
+  if (!file?.type?.startsWith('image/')) return file;
+  const image = await imageFromFile(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) return file;
+
+  const outputSize = 768;
+  const sourceSize = Math.min(sourceWidth, sourceHeight);
+  const sourceX = Math.max(0, (sourceWidth - sourceSize) / 2);
+  const sourceY = Math.max(0, (sourceHeight - sourceSize) / 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = outputSize;
+  canvas.height = outputSize;
+  const context = canvas.getContext('2d');
+  if (!context) return file;
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, outputSize, outputSize);
+  context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, outputSize, outputSize);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+  if (!blob) return file;
+  return new File([blob], 'profile.webp', { type: 'image/webp' });
+}
+
+function DateNavigator({ date, onChange, selectableDates = [] }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(monthKey(date));
+  const today = todayString();
+  const availableDates = useMemo(() => (
+    Array.from(new Set(selectableDates))
+      .filter((recordDate) => recordDate <= today)
+      .sort()
+  ), [selectableDates, today]);
+  const recordDateSet = useMemo(() => new Set(availableDates), [availableDates]);
+  const previousDate = useMemo(() => {
+    const before = availableDates.filter((recordDate) => recordDate < date);
+    return before.length ? before[before.length - 1] : null;
+  }, [availableDates, date]);
+  const nextDate = useMemo(() => availableDates.find((recordDate) => recordDate > date) || null, [availableDates, date]);
+
+  useEffect(() => {
+    setVisibleMonth(monthKey(date));
+  }, [date]);
+
+  function changeDate(nextRecordDate) {
+    if (!nextRecordDate || !recordDateSet.has(nextRecordDate)) return;
+    onChange(nextRecordDate);
+  }
+
+  function selectFromPicker(nextDate) {
+    if (!nextDate || nextDate > today || !recordDateSet.has(nextDate)) return;
+    onChange(nextDate);
+    setPickerOpen(false);
+  }
+
   return (
     <div className="date-nav">
       <button title="이전 기록 날짜" disabled={!previousDate} onClick={() => changeDate(previousDate)}><ChevronLeft size={18} /></button>
@@ -298,7 +394,13 @@ function GroupLobby({ auth, groups, onAuth, onRefresh, onSelect, composerOpen, o
             </div>
             <div className="member-dots" aria-hidden="true">
               {group.members.slice(0, 5).map((member) => (
-                <i key={member.userId}>{member.nickname.slice(0, 1)}</i>
+                <i key={member.userId}>
+                  {member.profileImageUrl ? (
+                    <img src={member.profileImageUrl} alt="" />
+                  ) : (
+                    member.nickname.slice(0, 1)
+                  )}
+                </i>
               ))}
             </div>
           </button>
@@ -420,6 +522,311 @@ function NotificationModal({ auth, onAuth, onClose }) {
         </div>
         {error && <p className="error">{error}</p>}
       </section>
+    </div>
+  );
+}
+
+function InstallGuideModal({ hasPrompt, onInstall, onClose, onDismiss }) {
+  const mode = detectInstallGuideMode(hasPrompt);
+  const canDismiss = mode !== 'inApp' && mode !== 'standalone';
+  const canInstall = mode === 'androidChromePrompt' || mode === 'browserPrompt';
+  const content = {
+    standalone: {
+      title: '이미 앱처럼 실행 중이에요.',
+      body: ['홈 화면에서 실행 중이라 추가 설치 안내가 필요 없어요.'],
+    },
+    inApp: {
+      title: '브라우저에서 열어주세요',
+      body: [
+        '현재 앱 내부 브라우저에서 열려 있습니다.',
+        'Drawlog를 앱처럼 설치하려면 Safari, Chrome, Samsung Internet에서 열어주세요.',
+      ],
+    },
+    iosSafari: {
+      title: '📱 Drawlog를 앱처럼 설치해보세요',
+      steps: [
+        '하단 공유 버튼(□↑)을 눌러주세요.',
+        '“홈 화면에 추가”를 선택해주세요.',
+        '추가를 누르면 앱처럼 사용할 수 있어요.',
+      ],
+    },
+    androidChromePrompt: {
+      title: '📱 Drawlog를 앱처럼 설치해보세요',
+      body: ['앱 설치 버튼을 누르면 Drawlog를 홈 화면에 추가할 수 있어요.'],
+    },
+    androidChromeManual: {
+      title: '📱 Drawlog를 앱처럼 설치해보세요',
+      body: ['Chrome 메뉴(⋮)에서 앱 설치 또는 홈 화면에 추가를 선택해주세요.'],
+    },
+    samsung: {
+      title: '📱 Drawlog를 앱처럼 설치해보세요',
+      body: ['메뉴에서 현재 페이지 추가를 누른 뒤 홈 화면을 선택해주세요.'],
+    },
+    browserPrompt: {
+      title: '📱 Drawlog를 앱처럼 설치해보세요',
+      body: ['앱 설치 버튼을 누르면 Drawlog를 홈 화면에 추가할 수 있어요.'],
+    },
+    default: {
+      title: '📱 Drawlog를 앱처럼 설치해보세요',
+      body: ['브라우저 메뉴에서 앱 설치 또는 홈 화면에 추가를 찾아주세요.'],
+    },
+  }[mode];
+
+  return (
+    <div className="modal-backdrop install-guide-backdrop">
+      <section className="install-guide-modal">
+        <div className="modal-header">
+          <h2>{content.title}</h2>
+          <button title="닫기" onClick={onClose}><X size={18} /></button>
+        </div>
+        {content.steps ? (
+          <ol className="install-guide-steps">
+            {content.steps.map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        ) : (
+          <div className="install-guide-copy">
+            {content.body.map((line) => <p key={line}>{line}</p>)}
+          </div>
+        )}
+        {mode === 'inApp' && (
+          <ul className="install-browser-list">
+            <li>Safari</li>
+            <li>Chrome</li>
+            <li>Samsung Internet</li>
+          </ul>
+        )}
+        <div className="install-guide-actions">
+          {canInstall && <button className="primary" onClick={onInstall}>앱 설치</button>}
+          {canDismiss && <button onClick={onDismiss}>다시 보지 않기</button>}
+          <button onClick={onClose}>닫기</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ProfileMenu({ auth, onAuth, onLogout, onProfileUpdated, onAccountDeleted, onOpenInstallGuide, standaloneMode }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState('main');
+  const [nickname, setNickname] = useState(auth.nickname || '');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const fileInputRef = useRef(null);
+  const avatarLetter = (auth.nickname || auth.email || '?').slice(0, 1);
+
+  useEffect(() => {
+    setNickname(auth.nickname || '');
+  }, [auth.nickname]);
+
+  function close() {
+    setOpen(false);
+    setView('main');
+    setMessage('');
+    setError('');
+    setConfirmDelete(false);
+  }
+
+  function mergeUser(user) {
+    return {
+      ...auth,
+      userId: user.userId || user.id || auth.userId,
+      email: user.email || auth.email,
+      nickname: user.nickname || auth.nickname,
+      profileImageUrl: user.profileImageUrl || null,
+    };
+  }
+
+  async function applyUser(user, nextMessage) {
+    onAuth(mergeUser(user));
+    setMessage(nextMessage);
+    setError('');
+    await onProfileUpdated?.();
+  }
+
+  async function saveNickname(event) {
+    event.preventDefault();
+    setError('');
+    try {
+      const user = await request('/users/me/nickname', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname }),
+      }, auth, onAuth);
+      await applyUser(user, '닉네임을 저장했어요.');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function uploadProfileImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setError('');
+    try {
+      const profileFile = await resizeProfileImage(file);
+      const formData = new FormData();
+      formData.append('image', profileFile, profileFile.name || 'profile.webp');
+      const user = await request('/users/me/profile-image', {
+        method: 'PATCH',
+        body: formData,
+      }, auth, onAuth);
+      await applyUser(user, '프로필 사진을 변경했어요.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  async function deleteProfileImage() {
+    setError('');
+    try {
+      const user = await request('/users/me/profile-image', { method: 'DELETE' }, auth, onAuth);
+      await applyUser(user, '프로필 사진을 삭제했어요.');
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteAccount() {
+    setError('');
+    try {
+      await request('/users/me', { method: 'DELETE' }, auth, onAuth);
+      try {
+        await request('/auth/logout', { method: 'POST' });
+      } catch {}
+      onAccountDeleted();
+    } catch (err) {
+      setConfirmDelete(false);
+      setError(err.message);
+    }
+  }
+
+  function title() {
+    if (view === 'edit') return '프로필 편집';
+    if (view === 'account') return '계정 관리';
+    return '내 프로필';
+  }
+
+  function renderContent() {
+    if (view === 'edit') {
+      return (
+        <>
+          <section className="profile-summary">
+            <span className="profile-menu-avatar large">
+              {auth.profileImageUrl ? <img src={auth.profileImageUrl} alt="내 프로필" /> : avatarLetter}
+            </span>
+            <strong>{auth.nickname}</strong>
+            <span>{auth.email}</span>
+          </section>
+          <form className="profile-edit-form" onSubmit={saveNickname}>
+            <label className="settings-field">
+              <span>이름</span>
+              <input value={nickname} onChange={(event) => setNickname(event.target.value)} minLength={2} maxLength={80} required />
+            </label>
+            <button type="submit"><Save size={15} /> 저장</button>
+          </form>
+          <section className="menu-section">
+            <strong>프로필 사진</strong>
+            <div className="profile-photo-actions">
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp,image/*" onChange={uploadProfileImage} hidden />
+              <button onClick={() => fileInputRef.current?.click()}><Edit3 size={15} /> 사진 변경</button>
+              <button className="danger" onClick={deleteProfileImage} disabled={!auth.profileImageUrl}><Trash2 size={15} /> 사진 삭제</button>
+            </div>
+          </section>
+        </>
+      );
+    }
+
+    if (view === 'account') {
+      return (
+        <>
+          <section className="menu-section">
+            <strong>계정</strong>
+            <button className="wide-action" onClick={onLogout}><LogOut size={16} /> 로그아웃</button>
+            <button className="danger wide-action" onClick={() => setConfirmDelete(true)}><Trash2 size={16} /> 회원탈퇴</button>
+          </section>
+        </>
+      );
+    }
+
+    return (
+      <div className="group-menu-main">
+        {!standaloneMode && (
+          <button onClick={() => {
+            close();
+            onOpenInstallGuide?.();
+          }}>
+            <Plus size={18} />
+            <span>앱 추가 가이드</span>
+          </button>
+        )}
+        <button onClick={() => {
+          setView('edit');
+          setMessage('');
+          setError('');
+        }}>
+          <Edit3 size={18} />
+          <span>프로필 편집</span>
+        </button>
+        <button onClick={() => {
+          setView('account');
+          setMessage('');
+          setError('');
+        }}>
+          <Settings size={18} />
+          <span>계정 관리</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="profile-menu-anchor">
+      <button className="profile-trigger" title="내 프로필" onClick={() => setOpen((value) => !value)}>
+        <span className="profile-menu-avatar">
+          {auth.profileImageUrl ? <img src={auth.profileImageUrl} alt="내 프로필" /> : avatarLetter}
+        </span>
+      </button>
+      {open && (
+        <>
+          <div className="menu-dismiss-layer profile-menu-dismiss-layer" onClick={close} aria-hidden="true" />
+          <section className={`profile-menu-popover ${view !== 'main' ? 'wide' : ''}`}>
+            <div className={`profile-menu-head ${view !== 'main' ? 'sub' : 'main'}`}>
+              {view !== 'main' && (
+                <>
+                  <button title="뒤로" onClick={() => {
+                    setView('main');
+                    setMessage('');
+                    setError('');
+                  }}><ChevronLeft size={17} /></button>
+                  <strong>{title()}</strong>
+                </>
+              )}
+              <button title="닫기" onClick={close}><X size={16} /></button>
+            </div>
+            {renderContent()}
+            {message && <p className="menu-toast">{message}</p>}
+            {error && <p className="error">{error}</p>}
+          </section>
+        </>
+      )}
+      {confirmDelete && (
+        <div className="modal-backdrop profile-confirm-backdrop">
+          <section className="delete-confirm-modal">
+            <div className="modal-header">
+              <h2>회원탈퇴</h2>
+              <button title="닫기" onClick={() => setConfirmDelete(false)}><X size={18} /></button>
+            </div>
+            <p>정말 탈퇴하시겠어요? 과거 그림과 채팅 기록은 탈퇴한 사용자로 남을 수 있어요.</p>
+            <div className="confirm-actions">
+              <button onClick={() => setConfirmDelete(false)}>취소</button>
+              <button className="danger" onClick={deleteAccount}>탈퇴</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -1501,6 +1908,11 @@ export default function App() {
   const [selectedGroupId, setSelectedGroupId] = useState(() => localStorage.getItem('drawlog.groupId'));
   const [lobbyComposerOpen, setLobbyComposerOpen] = useState(() => Boolean(inviteFromUrl()));
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [authNotice, setAuthNotice] = useState('');
+  const [installGuideOpen, setInstallGuideOpen] = useState(false);
+  const [autoInstallGuideShown, setAutoInstallGuideShown] = useState(false);
+  const [standaloneMode, setStandaloneMode] = useState(() => isStandaloneMode());
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
 
   useEffect(() => {
     // Drop stale mobile PWA caches from previous local installs.
@@ -1516,7 +1928,56 @@ export default function App() {
     }
   }, []);
 
-  function setAuth(nextAuth) {
+  useEffect(() => {
+    const updateStandaloneMode = () => setStandaloneMode(isStandaloneMode());
+    const media = window.matchMedia?.('(display-mode: standalone)');
+    updateStandaloneMode();
+    media?.addEventListener?.('change', updateStandaloneMode);
+    media?.addListener?.(updateStandaloneMode);
+    return () => {
+      media?.removeEventListener?.('change', updateStandaloneMode);
+      media?.removeListener?.(updateStandaloneMode);
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleBeforeInstallPrompt(event) {
+      event.preventDefault();
+      setDeferredInstallPrompt(event);
+    }
+
+    function handleAppInstalled() {
+      setDeferredInstallPrompt(null);
+      setInstallGuideOpen(false);
+      setStandaloneMode(isStandaloneMode());
+    }
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!auth) {
+      setAutoInstallGuideShown(false);
+      setInstallGuideOpen(false);
+    }
+  }, [auth]);
+
+  useEffect(() => {
+    if (!auth || standaloneMode || autoInstallGuideShown) return;
+    if (localStorage.getItem(INSTALL_GUIDE_DISMISSED_KEY) === 'true') return;
+    const timer = window.setTimeout(() => {
+      setAutoInstallGuideShown(true);
+      setInstallGuideOpen(true);
+    }, selectedGroupId ? 600 : 900);
+    return () => window.clearTimeout(timer);
+  }, [auth, selectedGroupId, standaloneMode, autoInstallGuideShown]);
+
+  function setAuth(nextAuth, options = {}) {
     setAuthState(nextAuth);
     if (nextAuth) {
       localStorage.setItem('drawlog.auth', JSON.stringify(nextAuth));
@@ -1557,9 +2018,40 @@ export default function App() {
     try {
       await request('/auth/logout', { method: 'POST' }, auth, setAuth);
     } finally {
-      setAuth(null);
-      setSelectedGroupId(null);
-      localStorage.removeItem('drawlog.groupId');
+      clearSession();
+    }
+  }
+
+  function clearSession() {
+    setAuth(null);
+    setSelectedGroupId(null);
+    localStorage.removeItem('drawlog.groupId');
+  }
+
+  function closeInstallGuide() {
+    setInstallGuideOpen(false);
+  }
+
+  function dismissInstallGuide() {
+    localStorage.setItem(INSTALL_GUIDE_DISMISSED_KEY, 'true');
+    setInstallGuideOpen(false);
+  }
+
+  function openInstallGuide() {
+    setInstallGuideOpen(true);
+  }
+
+  async function installPwa() {
+    const promptEvent = deferredInstallPrompt;
+    if (!promptEvent?.prompt) return;
+    try {
+      await promptEvent.prompt();
+      await promptEvent.userChoice;
+    } catch {
+      // Browser install prompts can fail silently when unavailable.
+    } finally {
+      setDeferredInstallPrompt(null);
+      setInstallGuideOpen(false);
     }
   }
 
@@ -1567,51 +2059,73 @@ export default function App() {
     () => groups.find((group) => String(group.id) === String(selectedGroupId)),
     [groups, selectedGroupId],
   );
+  const installGuideModal = installGuideOpen ? (
+    <InstallGuideModal
+      hasPrompt={Boolean(deferredInstallPrompt)}
+      onInstall={installPwa}
+      onClose={closeInstallGuide}
+      onDismiss={dismissInstallGuide}
+    />
+  ) : null;
 
   if (!auth) return <AuthView onAuth={setAuth} />;
 
   if (!selectedGroup) {
     return (
-      <main className="app-shell lobby-shell">
-        <header className="topbar">
-          <div>
-            <p className="brand-word">DRAWLOG</p>
-          </div>
-          <div className="lobby-actions">
-            <button title="그룹 만들기" onClick={() => setLobbyComposerOpen(true)}><Plus size={28} /></button>
-            <button title="알림" onClick={() => setNotificationsOpen(true)}><Bell size={25} /></button>
-            <button title="로그아웃" onClick={logout}><LogOut size={22} /></button>
-          </div>
-        </header>
-        <GroupLobby
-          auth={auth}
-          onAuth={setAuth}
-          groups={groups}
-          onRefresh={loadGroups}
-          onSelect={selectGroup}
-          composerOpen={lobbyComposerOpen}
-          onCloseComposer={() => setLobbyComposerOpen(false)}
-        />
-        {notificationsOpen && <NotificationModal auth={auth} onAuth={setAuth} onClose={() => setNotificationsOpen(false)} />}
-      </main>
+      <>
+        <main className="app-shell lobby-shell">
+          <header className="topbar">
+            <div>
+              <p className="brand-word">DRAWLOG</p>
+            </div>
+            <div className="lobby-actions">
+              <button title="그룹 만들기" onClick={() => setLobbyComposerOpen(true)}><Plus size={28} /></button>
+              <button title="알림" onClick={() => setNotificationsOpen(true)}><Bell size={25} /></button>
+              <ProfileMenu
+                auth={auth}
+                onAuth={setAuth}
+                onLogout={logout}
+                onProfileUpdated={loadGroups}
+                onAccountDeleted={clearSession}
+                onOpenInstallGuide={openInstallGuide}
+                standaloneMode={standaloneMode}
+              />
+            </div>
+          </header>
+          <GroupLobby
+            auth={auth}
+            onAuth={setAuth}
+            groups={groups}
+            onRefresh={loadGroups}
+            onSelect={selectGroup}
+            composerOpen={lobbyComposerOpen}
+            onCloseComposer={() => setLobbyComposerOpen(false)}
+          />
+          {notificationsOpen && <NotificationModal auth={auth} onAuth={setAuth} onClose={() => setNotificationsOpen(false)} />}
+        </main>
+        {installGuideModal}
+      </>
     );
   }
 
   return (
-    <GroupRoom
-      auth={auth}
-      onAuth={setAuth}
-      group={selectedGroup}
-      onBack={() => {
-        setSelectedGroupId(null);
-        localStorage.removeItem('drawlog.groupId');
-      }}
-      onRefreshGroups={loadGroups}
-      onLeftGroup={async () => {
-        setSelectedGroupId(null);
-        localStorage.removeItem('drawlog.groupId');
-        await loadGroups();
-      }}
-    />
+    <>
+      <GroupRoom
+        auth={auth}
+        onAuth={setAuth}
+        group={selectedGroup}
+        onBack={() => {
+          setSelectedGroupId(null);
+          localStorage.removeItem('drawlog.groupId');
+        }}
+        onRefreshGroups={loadGroups}
+        onLeftGroup={async () => {
+          setSelectedGroupId(null);
+          localStorage.removeItem('drawlog.groupId');
+          await loadGroups();
+        }}
+      />
+      {installGuideModal}
+    </>
   );
 }

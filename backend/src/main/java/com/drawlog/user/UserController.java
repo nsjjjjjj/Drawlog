@@ -36,6 +36,11 @@ public class UserController {
         return userService.updateProfileImage(user.id(), image);
     }
 
+    @DeleteMapping("/api/users/me/profile-image")
+    public UserDtos.UserResponse deleteProfileImage(@AuthenticationPrincipal CurrentUser user) {
+        return userService.deleteProfileImage(user.id());
+    }
+
     @DeleteMapping("/api/users/me")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMe(@AuthenticationPrincipal CurrentUser user) {

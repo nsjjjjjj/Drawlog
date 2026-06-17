@@ -6,18 +6,45 @@
   text-rendering: optimizeLegibility;
 }
 
+html {
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
+  width: 100%;
   margin: 0;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
   min-width: 320px;
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow-x: hidden;
 }
 
 button {
@@ -382,6 +409,41 @@ h2 {
   color: #202124;
 }
 
+.profile-menu-anchor {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.lobby-actions .profile-trigger {
+  overflow: hidden;
+}
+
+.profile-menu-avatar {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #dfeadf;
+  color: #315f45;
+  font-size: 16px;
+  font-weight: 1000;
+}
+
+.profile-menu-avatar.large {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+}
+
+.profile-menu-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .group-tile strong {
   font-size: 20px;
 }
@@ -415,6 +477,7 @@ h2 {
   height: 22px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border-radius: 50%;
   background: #e1eadf;
   color: #315f45;
@@ -422,6 +485,12 @@ h2 {
   font-style: normal;
   font-weight: 1000;
   box-shadow: 0 0 0 2px #fffdf8;
+}
+
+.member-dots img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .member-dots i:nth-child(2n) {
@@ -476,7 +545,7 @@ h2 {
   background: #fffdf8;
   color: #202124;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .lobby-shell input::placeholder {
@@ -501,7 +570,8 @@ h2 {
 }
 
 .lobby-modal {
-  width: min(460px, calc(100vw - 28px));
+  width: min(460px, calc(100dvw - 28px));
+  max-width: calc(100% - 28px);
   display: grid;
   gap: 14px;
   padding: 16px;
@@ -1741,6 +1811,17 @@ h2 {
   background: transparent;
 }
 
+.profile-menu-dismiss-layer {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: default;
+}
+
 .group-menu-popover {
   position: absolute;
   left: 50%;
@@ -1758,9 +1839,73 @@ h2 {
 }
 
 .group-menu-popover.wide {
-  width: min(360px, calc(100vw - 24px));
+  width: min(360px, calc(100dvw - 24px));
   max-height: min(72dvh, 560px);
   overflow: auto;
+}
+
+.profile-menu-popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 40;
+  width: 236px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid #ddd6ca;
+  border-radius: 8px;
+  background: #fffdf8;
+  padding: 10px;
+  box-shadow: 0 18px 48px rgba(53, 48, 39, 0.2);
+}
+
+.profile-menu-popover.wide {
+  width: min(360px, calc(100dvw - 24px));
+  max-height: min(72dvh, 560px);
+  overflow: auto;
+}
+
+.profile-menu-popover button,
+.profile-confirm-backdrop button {
+  width: auto;
+  height: auto;
+  min-height: 40px;
+  border-radius: 8px;
+}
+
+.profile-menu-popover .group-menu-card-head button,
+.profile-menu-popover .profile-menu-head button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.profile-menu-head {
+  display: grid;
+  align-items: center;
+  min-width: 0;
+}
+
+.profile-menu-head.main {
+  grid-template-columns: 32px;
+  justify-content: end;
+}
+
+.profile-menu-head.sub {
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 8px;
+}
+
+.profile-menu-head strong {
+  justify-self: center;
+  min-width: 0;
+  overflow: hidden;
+  color: #202124;
+  font-size: 14px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-menu-card-head {
@@ -1883,6 +2028,82 @@ h2 {
 .room-menu-toast {
   margin: -2px 0 0;
   text-align: center;
+}
+
+.profile-summary {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 4px 4px;
+  text-align: center;
+}
+
+.profile-summary strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: #202124;
+  font-size: 16px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-summary span:not(.profile-menu-avatar) {
+  max-width: 100%;
+  overflow: hidden;
+  color: #7b766d;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-edit-form {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-edit-form button,
+.profile-photo-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.profile-photo-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.profile-confirm-backdrop {
+  z-index: 60;
+}
+
+.delete-confirm-modal {
+  width: min(360px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #ddd6ca;
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.delete-confirm-modal p {
+  margin: 0;
+  color: #4f473e;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .menu-member-list {
@@ -2200,7 +2421,7 @@ h2 {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
-  width: min(420px, calc(100vw - 32px));
+  width: min(420px, calc(100dvw - 32px));
   padding: 14px;
   border: 1px solid #ddd6ca;
   border-radius: 8px;
@@ -2520,6 +2741,92 @@ h2 {
   font-weight: 800;
 }
 
+.install-guide-backdrop {
+  z-index: 70;
+  background: rgba(32, 33, 36, 0.34);
+  backdrop-filter: blur(4px);
+}
+
+.install-guide-modal {
+  width: min(380px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #ddd6ca;
+  border-radius: 14px;
+  background: #fffdf8;
+  box-shadow: 0 22px 62px rgba(53, 48, 39, 0.24);
+}
+
+.install-guide-modal .modal-header {
+  gap: 10px;
+}
+
+.install-guide-modal h2 {
+  margin: 0;
+  color: #202124;
+  font-size: 19px;
+  font-weight: 1000;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.install-guide-modal .modal-header button {
+  width: 36px;
+  min-height: 36px;
+  flex: 0 0 auto;
+  padding: 0;
+}
+
+.install-guide-copy,
+.install-guide-steps,
+.install-browser-list {
+  margin: 0;
+  color: #4f473e;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
+.install-guide-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.install-guide-copy p {
+  margin: 0;
+}
+
+.install-guide-steps,
+.install-browser-list {
+  padding-left: 20px;
+}
+
+.install-guide-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.install-browser-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 18px;
+  color: #2f6045;
+  font-weight: 1000;
+}
+
+.install-guide-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.install-guide-actions button {
+  min-height: 42px;
+  border-radius: 8px;
+  font-weight: 900;
+}
+
 .layer-strip {
   display: flex;
   gap: 8px;
@@ -2742,6 +3049,16 @@ h2 {
   isolation: isolate;
   overscroll-behavior: none;
   touch-action: none;
+}
+
+@media (display-mode: standalone) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
 }
 
 .tracing-image {
