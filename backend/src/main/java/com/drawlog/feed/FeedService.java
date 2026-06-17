@@ -68,6 +68,7 @@ public class FeedService {
                                 member.getUser().getStatus(),
                                 member.getRole(),
                                 member.getJoinedAt(),
+                                drawingByUser.containsKey(member.getUser().getId()),
                                 locked ? null : drawingService.toResponse(drawingByUser.get(member.getUser().getId()))
                         ))
                         .toList()
@@ -77,7 +78,7 @@ public class FeedService {
     @Transactional
     public FeedDtos.FeedDatesResponse dates(Long userId, Long groupId) {
         groupService.requireGroup(userId, groupId);
-        return new FeedDtos.FeedDatesResponse(drawingRepository.findRecordDates(groupId, today()));
+        return new FeedDtos.FeedDatesResponse(drawingRepository.findRecordDatesByUserStatus(groupId, today(), UserStatus.ACTIVE));
     }
 
     private LocalDate today() {

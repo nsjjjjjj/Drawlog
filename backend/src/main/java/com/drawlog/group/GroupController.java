@@ -43,7 +43,7 @@ public class GroupController {
 
     @PatchMapping("/{groupId}")
     public GroupDtos.GroupDetailResponse update(@AuthenticationPrincipal CurrentUser user, @PathVariable Long groupId, @Valid @RequestBody GroupDtos.UpdateGroupRequest request) {
-        return detail(user.id(), groupService.updateGroupName(user.id(), groupId, request.name()));
+        return detail(user.id(), groupService.updateGroup(user.id(), groupId, request.name(), request.maxMembers()));
     }
 
     @PostMapping("/join")

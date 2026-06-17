@@ -55,10 +55,15 @@ public class DrawingService {
         drawing.setUser(user);
         drawing.setGroup(group);
         drawing.setDailyTopic(topic);
-        applyPayload(drawing, image);
-        Drawing saved = drawingRepository.save(drawing);
-        notificationService.notifyDrawingUploaded(saved);
-        return saved;
+        StoredFile storedFile = applyPayload(drawing, image);
+        try {
+            Drawing saved = drawingRepository.saveAndFlush(drawing);
+            notificationService.notifyDrawingUploaded(saved);
+            return saved;
+        } catch (RuntimeException e) {
+            storageService.deleteImage(storedFile.imageUrl());
+            throw e;
+        }
     }
 
     @Transactional
@@ -69,10 +74,15 @@ public class DrawingService {
                 .orElseThrow(() -> new ApiException(ErrorCode.DRAWING_NOT_FOUND));
         ensureEditableToday(drawing);
         String oldImage = drawing.getImagePath();
-        applyPayload(drawing, image);
-        Drawing saved = drawingRepository.save(drawing);
-        if (oldImage != null) storageService.deleteImage(oldImage);
-        return saved;
+        StoredFile storedFile = applyPayload(drawing, image);
+        try {
+            Drawing saved = drawingRepository.saveAndFlush(drawing);
+            if (oldImage != null) storageService.deleteImage(oldImage);
+            return saved;
+        } catch (RuntimeException e) {
+            storageService.deleteImage(storedFile.imageUrl());
+            throw e;
+        }
     }
 
     @Transactional
@@ -102,10 +112,11 @@ public class DrawingService {
         );
     }
 
-    private void applyPayload(Drawing drawing, MultipartFile image) {
+    private StoredFile applyPayload(Drawing drawing, MultipartFile image) {
         StoredFile storedFile = storageService.storeImage(image);
         drawing.setStrokeData(IMAGE_STORAGE_STROKE_PLACEHOLDER);
         drawing.setImagePath(storedFile.imageUrl());
+        return storedFile;
     }
 
     private void ensureEditableToday(Drawing drawing) {

@@ -22,6 +22,8 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
     List<GroupMember> findByGroupIdOrderByJoinedAtAsc(Long groupId);
     @EntityGraph(attributePaths = {"user", "group"})
     List<GroupMember> findByGroupIdAndUserStatusOrderByJoinedAtAsc(Long groupId, UserStatus status);
+    @EntityGraph(attributePaths = {"user", "group"})
+    List<GroupMember> findByUserStatusOrderByJoinedAtAsc(UserStatus status);
     long countByGroupId(Long groupId);
     long countByGroupIdAndUserStatus(Long groupId, UserStatus status);
     void deleteByGroupId(Long groupId);

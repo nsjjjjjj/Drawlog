@@ -54,15 +54,13 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const fallbackSize = Math.min(Math.max(window.innerWidth - 40, 320), 680);
-    const displaySize = Math.min(Math.max(Math.round(rect.width || fallbackSize), 320), 680);
-    const ratio = window.devicePixelRatio || 1;
-    canvas.style.width = `${displaySize}px`;
-    canvas.style.height = `${displaySize}px`;
-    canvas.width = Math.floor(displaySize * ratio);
-    canvas.height = Math.floor(displaySize * ratio);
-    canvasSizeRef.current = { width: displaySize, height: displaySize };
+    const displayWidth = Math.max(Math.round(rect.width || fallbackSize), 1);
+    const displayHeight = Math.max(Math.round(rect.height || displayWidth), 1);
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    canvasSizeRef.current = { width: canvas.width, height: canvas.height };
+    canvasDebugLoggedRef.current = false;
     const ctx = context();
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     fillWhite();
@@ -141,18 +139,16 @@ export default function DrawingModal({ auth, onAuth, groupId, existingDrawing, o
   function point(event) {
     const canvas = canvasRef.current;
     if (!canvas || event.clientX == null || event.clientY == null) return null;
-    const rect = canvas.getBoundingClientRect();
-    const width = canvasSizeRef.current.width || rect.width || 1;
-    const height = canvasSizeRef.current.height || rect.height || 1;
-    const scaleX = width / (rect.width || width);
-    const scaleY = height / (rect.height || height);
+    const rect = rectRef.current || canvas.getBoundingClientRect();
+    const width = canvas.width || canvasSizeRef.current.width || 1;
+    const height = canvas.height || canvasSizeRef.current.height || 1;
     return {
-      x: Math.max(0, Math.min(width, (event.clientX - rect.left) * scaleX)),
-      y: Math.max(0, Math.min(height, (event.clientY - rect.top) * scaleY)),
+      x: Math.max(0, Math.min(width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(height, event.clientY - rect.top)),
     };
   }
 
-  function applyBrush(ctx) {
+  function configureBrush(ctx) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';

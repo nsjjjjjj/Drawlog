@@ -10,7 +10,8 @@ public class ChatDtos {
     public record SendMessageRequest(
             @NotNull ChatMessageType type,
             @NotBlank @Size(max = 1000) String content,
-            Long drawingId
+            Long drawingId,
+            Long replyToMessageId
     ) {}
 
     public record QuoteResponse(
@@ -27,12 +28,22 @@ public class ChatDtos {
             Long groupId,
             Long userId,
             String username,
+            String profileImageUrl,
             ChatMessageType type,
             String content,
             Long drawingId,
             Instant deletedAt,
             Instant createdAt,
-            QuoteResponse quote
+            QuoteResponse quote,
+            ReplyToMessageResponse replyTo
+    ) {}
+
+    public record ReplyToMessageResponse(
+            Long id,
+            Long userId,
+            String username,
+            String content,
+            Instant createdAt
     ) {}
 
     public record ChatPageResponse(List<ChatMessageResponse> messages, Long nextCursor) {}

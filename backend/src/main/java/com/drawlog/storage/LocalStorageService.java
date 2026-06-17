@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class LocalStorageService implements StorageService {
+    private static final Logger log = LoggerFactory.getLogger(LocalStorageService.class);
     private static final Set<String> ALLOWED_TYPES = Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
     private final AppProperties properties;
     private final Queue<String> failedDeletes = new ConcurrentLinkedQueue<>();

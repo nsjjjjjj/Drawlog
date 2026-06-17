@@ -15,6 +15,7 @@ import com.drawlog.topic.TopicSuggestionRepository;
 import com.drawlog.topic.TopicVoteRepository;
 import com.drawlog.user.User;
 import com.drawlog.user.UserRepository;
+import com.drawlog.user.UserStatus;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -77,7 +78,7 @@ public class NotificationService {
             created.setUser(user);
             return userSettingsRepository.save(created);
         });
-        List<NotificationDtos.GroupSettingResponse> groups = memberRepository.findByUserIdOrderByJoinedAtAsc(userId).stream()
+        List<NotificationDtos.GroupSettingResponse> groups = memberRepository.findByUserIdAndUserStatusOrderByJoinedAtAsc(userId, UserStatus.ACTIVE).stream()
                 .map(member -> new NotificationDtos.GroupSettingResponse(
                         member.getGroup().getId(),
                         member.getGroup().getName(),
@@ -119,7 +120,7 @@ public class NotificationService {
 
     @Transactional
     public void notifyChat(ChatMessage message) {
-        for (GroupMember member : memberRepository.findByGroupIdOrderByJoinedAtAsc(message.getGroup().getId())) {
+        for (GroupMember member : memberRepository.findByGroupIdAndUserStatusOrderByJoinedAtAsc(message.getGroup().getId(), UserStatus.ACTIVE)) {
             if (!member.getUser().getId().equals(message.getSender().getId())) {
                 createIfEnabled(
                         member.getUser(),
@@ -137,7 +138,7 @@ public class NotificationService {
     @Transactional
     public void notifyDrawingUploaded(Drawing drawing) {
         DailyTopic topic = drawing.getDailyTopic();
-        for (GroupMember member : memberRepository.findByGroupIdOrderByJoinedAtAsc(drawing.getGroup().getId())) {
+        for (GroupMember member : memberRepository.findByGroupIdAndUserStatusOrderByJoinedAtAsc(drawing.getGroup().getId(), UserStatus.ACTIVE)) {
             Long recipientId = member.getUser().getId();
             if (recipientId.equals(drawing.getUser().getId())) continue;
             boolean recipientSubmitted = drawingRepository.existsByGroupIdAndDailyTopicIdAndUserId(
@@ -162,7 +163,7 @@ public class NotificationService {
     @Transactional
     public void notifyUndrawnToday(LocalDate date) {
         for (FriendGroup group : groupRepository.findAll()) {
-            for (GroupMember member : memberRepository.findByGroupIdOrderByJoinedAtAsc(group.getId())) {
+            for (GroupMember member : memberRepository.findByGroupIdAndUserStatusOrderByJoinedAtAsc(group.getId(), UserStatus.ACTIVE)) {
                 boolean submitted = drawingRepository.existsByGroupIdAndDailyTopicTopicDateAndUserId(group.getId(), date, member.getUser().getId());
                 if (!submitted) {
                     createIfEnabled(
@@ -183,7 +184,7 @@ public class NotificationService {
     public void notifyUnvoted(LocalDate targetDate) {
         for (FriendGroup group : groupRepository.findAll()) {
             if (suggestionRepository.findByGroupIdAndTargetDateOrderByCreatedAtAsc(group.getId(), targetDate).isEmpty()) continue;
-            for (GroupMember member : memberRepository.findByGroupIdOrderByJoinedAtAsc(group.getId())) {
+            for (GroupMember member : memberRepository.findByGroupIdAndUserStatusOrderByJoinedAtAsc(group.getId(), UserStatus.ACTIVE)) {
                 boolean voted = voteRepository.findByGroupIdAndUserIdAndTargetDate(group.getId(), member.getUser().getId(), targetDate).isPresent();
                 if (!voted) {
                     createIfEnabled(
@@ -201,6 +202,7 @@ public class NotificationService {
     }
 
     private void createIfEnabled(User user, FriendGroup group, String type, String title, String message, String targetType, Long targetId) {
+        if (user.getStatus() != UserStatus.ACTIVE) return;
         boolean allEnabled = userSettingsRepository.findById(user.getId())
                 .map(UserNotificationSettings::isAllEnabled)
                 .orElse(true);

@@ -39,8 +39,8 @@ public class ChatService {
         FriendGroup group = groupService.requireGroup(userId, groupId);
         int pageSize = Math.min(Math.max(size, 1), 50);
         List<ChatMessage> rows = (cursor == null
-                ? chatMessageRepository.findByGroupIdOrderByCreatedAtDesc(group.getId(), PageRequest.of(0, pageSize))
-                : chatMessageRepository.findByGroupIdAndIdLessThanOrderByCreatedAtDesc(group.getId(), cursor, PageRequest.of(0, pageSize)));
+                ? chatMessageRepository.findByGroupIdAndDeletedAtIsNullOrderByCreatedAtDesc(group.getId(), PageRequest.of(0, pageSize))
+                : chatMessageRepository.findByGroupIdAndDeletedAtIsNullAndIdLessThanOrderByCreatedAtDesc(group.getId(), cursor, PageRequest.of(0, pageSize)));
         List<ChatDtos.ChatMessageResponse> messages = rows.stream()
                 .sorted(Comparator.comparing(ChatMessage::getCreatedAt).thenComparing(ChatMessage::getId))
                 .map(this::toResponse)
@@ -61,6 +61,10 @@ public class ChatService {
         message.setType(request.type());
         message.setContent(request.content().trim());
 
+        if (request.drawingId() != null && request.replyToMessageId() != null) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "한 번에 하나만 인용할 수 있습니다.");
+        }
+
         if (request.type() == ChatMessageType.DRAWING_QUOTE) {
             if (request.drawingId() == null) throw new ApiException(ErrorCode.BAD_REQUEST, "인용할 그림이 필요합니다.");
             Drawing drawing = drawingRepository.findById(request.drawingId())
@@ -69,6 +73,14 @@ public class ChatService {
                 throw new ApiException(ErrorCode.FORBIDDEN, "같은 그룹의 그림만 인용할 수 있습니다.");
             }
             message.setDrawing(drawing);
+        }
+
+        if (request.replyToMessageId() != null) {
+            ChatMessage replyToMessage = chatMessageRepository.findById(request.replyToMessageId())
+                    .filter(found -> found.getGroup().getId().equals(group.getId()))
+                    .filter(found -> found.getDeletedAt() == null)
+                    .orElseThrow(() -> new ApiException(ErrorCode.CHAT_MESSAGE_NOT_FOUND));
+            message.setReplyToMessage(replyToMessage);
         }
 
         ChatMessage saved = chatMessageRepository.save(message);
@@ -117,11 +129,12 @@ public class ChatService {
                 username(sender),
                 profileImageUrl(sender),
                 message.getType(),
-                message.getDeletedAt() == null ? message.getContent() : "삭제된 메시지입니다.",
+                message.getContent(),
                 drawing == null ? null : drawing.getId(),
                 message.getDeletedAt(),
                 message.getCreatedAt(),
-                quote
+                quote,
+                replyTo
         );
     }
 

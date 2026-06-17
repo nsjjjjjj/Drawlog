@@ -46,6 +46,10 @@ public class ChatMessage {
     @JoinColumn(name = "drawing_id")
     private Drawing drawing;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reply_to_message_id")
+    private ChatMessage replyToMessage;
+
     private Instant deletedAt;
 
     @Column(nullable = false)
@@ -62,6 +66,8 @@ public class ChatMessage {
     public void setContent(String content) { this.content = content; }
     public Drawing getDrawing() { return drawing; }
     public void setDrawing(Drawing drawing) { this.drawing = drawing; }
+    public ChatMessage getReplyToMessage() { return replyToMessage; }
+    public void setReplyToMessage(ChatMessage replyToMessage) { this.replyToMessage = replyToMessage; }
     public Instant getDeletedAt() { return deletedAt; }
     public void setDeletedAt(Instant deletedAt) { this.deletedAt = deletedAt; }
     public Instant getCreatedAt() { return createdAt; }

@@ -144,7 +144,7 @@ public class GroupService {
     }
 
     @Transactional
-    public FriendGroup updateGroupName(Long userId, Long groupId, String name) {
+    public FriendGroup updateGroup(Long userId, Long groupId, String name, Integer maxMembers) {
         FriendGroup group = requireOwner(userId, groupId);
         group.setName(name);
         if (maxMembers != null) {

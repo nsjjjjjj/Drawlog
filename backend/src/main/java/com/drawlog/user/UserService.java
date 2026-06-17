@@ -14,6 +14,7 @@ import com.drawlog.group.MemberRole;
 import com.drawlog.notification.GroupNotificationSettingsRepository;
 import com.drawlog.notification.NotificationRepository;
 import com.drawlog.storage.StorageService;
+import com.drawlog.storage.StoredFile;
 import com.drawlog.topic.DailyTopicRepository;
 import com.drawlog.topic.TopicSuggestionRepository;
 import com.drawlog.topic.TopicVoteRepository;
@@ -75,7 +76,14 @@ public class UserService {
     public UserDtos.UserResponse updateProfileImage(Long userId, MultipartFile image) {
         User user = user(userId);
         String oldImage = user.getProfileImageUrl();
-        user.setProfileImageUrl(storageService.storeImage(image).imageUrl());
+        StoredFile storedFile = storageService.storeImage(image);
+        user.setProfileImageUrl(storedFile.imageUrl());
+        try {
+            userRepository.flush();
+        } catch (RuntimeException e) {
+            storageService.deleteImage(storedFile.imageUrl());
+            throw e;
+        }
         if (oldImage != null) storageService.deleteImage(oldImage);
         return toResponse(user);
     }
@@ -85,6 +93,7 @@ public class UserService {
         User user = user(userId);
         String oldImage = user.getProfileImageUrl();
         user.setProfileImageUrl(null);
+        userRepository.flush();
         if (oldImage != null) storageService.deleteImage(oldImage);
         return toResponse(user);
     }

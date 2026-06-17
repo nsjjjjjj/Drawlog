@@ -16,6 +16,7 @@ public class FeedDtos {
             UserStatus status,
             MemberRole role,
             Instant joinedAt,
+            boolean submitted,
             DrawingDtos.DrawingResponse drawing
     ) {}
 

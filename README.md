@@ -77,6 +77,48 @@ docker compose up --build
 - `StorageService` 인터페이스는 유지되어 있어 추후 Google Cloud Storage 구현체로 교체할 수 있습니다.
 - 프로필 사진 변경/삭제, 그림 수정, 회원탈퇴 시 기존 로컬 파일을 정리합니다. 파일 삭제 실패는 사용자 요청을 막지 않지만 백엔드 WARN 로그와 실패 목록에 남겨 운영자가 확인할 수 있습니다.
 
+## 배포 전 데이터 정리
+
+과거 개발 중 생긴 stale membership, 탈퇴 사용자 그림, DB가 더 이상 참조하지 않는 uploads 파일은 관리용 cleanup runner로 점검/정리할 수 있습니다. 기본 서버 실행에서는 cleanup이 자동으로 실행되지 않습니다.
+
+먼저 dry-run으로 후보만 확인합니다.
+
+```bash
+docker compose build backend
+docker compose run --rm backend --cleanup.dry-run=true
+```
+
+예시 출력:
+
+```text
+Drawlog cleanup DRY-RUN
+orphan upload candidates: 7
+deleted upload files: 0
+deleted DELETED memberships: 3
+deleted DELETED drawings: 6
+deleted DELETED drawing files: 0
+owner-repaired groups: 1
+deleted empty groups: 0
+deleted drawings from empty groups: 0
+```
+
+실제 삭제/보정을 적용할 때만 apply를 명시합니다.
+
+```bash
+docker compose run --rm backend --cleanup.apply=true
+```
+
+cleanup apply가 정리하는 항목:
+
+- DB가 참조하지 않는 `uploads` 파일
+- `status=DELETED` 사용자의 memberships
+- `status=DELETED` 사용자의 drawings row와 연결된 그림 파일
+- `status=DELETED` OWNER가 남은 그룹의 OWNER 보정
+- ACTIVE 멤버가 없는 그룹과 연결 데이터
+- 탈퇴 사용자의 그룹 알림 설정
+
+OWNER 보정은 ACTIVE 멤버 중 `joined_at ASC` 첫 번째 멤버에게 위임합니다. ACTIVE 멤버가 없으면 그룹을 삭제합니다.
+
 ## 주요 정책
 
 - 사용자는 여러 그룹에 가입할 수 있습니다.
@@ -166,10 +208,8 @@ docker compose up --build
 
 | Method | Path | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/groups/{groupId}/drawings/today` | 내 오늘 그림 |
 | `POST` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 제출, multipart `image` |
 | `PUT` | `/api/groups/{groupId}/drawings/today` | 오늘 그림 수정, multipart `image` |
-| `GET` | `/api/groups/{groupId}/drawings/{drawingId}` | 그림 상세 |
 | `GET` | `/api/groups/{groupId}/feed?date=YYYY-MM-DD` | 날짜별 피드 |
 | `GET` | `/api/groups/{groupId}/feed/dates` | 그림 기록이 존재하는 날짜 목록 |
 | `GET` | `/api/groups/{groupId}/chats?cursor=...&size=30` | 채팅 조회 |

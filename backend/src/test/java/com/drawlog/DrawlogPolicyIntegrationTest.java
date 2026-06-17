@@ -9,6 +9,11 @@ import com.drawlog.chat.ChatMessageType;
 import com.drawlog.chat.ChatService;
 import com.drawlog.common.ApiException;
 import com.drawlog.common.ErrorCode;
+import com.drawlog.auth.RefreshToken;
+import com.drawlog.auth.RefreshTokenRepository;
+import com.drawlog.config.AppProperties;
+import com.drawlog.cleanup.CleanupReport;
+import com.drawlog.cleanup.CleanupService;
 import com.drawlog.drawing.Drawing;
 import com.drawlog.drawing.DrawingController;
 import com.drawlog.drawing.DrawingRepository;
@@ -19,6 +24,7 @@ import com.drawlog.group.FriendGroupRepository;
 import com.drawlog.group.GroupMemberRepository;
 import com.drawlog.group.GroupService;
 import com.drawlog.group.MemberRole;
+import com.drawlog.notification.NotificationRepository;
 import com.drawlog.topic.DailyTopic;
 import com.drawlog.topic.DailyTopicRepository;
 import com.drawlog.topic.TopicDtos;
@@ -64,6 +70,8 @@ class DrawlogPolicyIntegrationTest {
     @Autowired AppProperties appProperties;
     @Autowired GroupMemberRepository memberRepository;
     @Autowired FriendGroupRepository groupRepository;
+    @Autowired CleanupService cleanupService;
+    @Autowired NotificationRepository notificationRepository;
 
     @BeforeEach
     @AfterEach
@@ -281,7 +289,7 @@ class DrawlogPolicyIntegrationTest {
         FriendGroup group = groupService.createGroup(owner.getId(), "채팅방", 6, null);
 
         ChatDtos.ChatMessageResponse message = chatService.send(owner.getId(), group.getId(),
-                new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "안녕", null));
+                new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "안녕", null, null));
         chatService.delete(owner.getId(), group.getId(), message.id());
 
         assertThat(chatMessageRepository.findById(message.id())).get()
@@ -593,6 +601,132 @@ class DrawlogPolicyIntegrationTest {
                 .isNull();
     }
 
+    @Test
+    void cleanupDryRunDoesNotDeleteStaleDataOrOrphanUploads() throws IOException {
+        User owner = user("cleanup-dry-owner");
+        User deletedMember = user("cleanup-dry-deleted");
+        FriendGroup group = groupService.createGroup(owner.getId(), "드라이런방", 6, "드라이런");
+        groupService.joinGroup(deletedMember.getId(), group.getInviteCode());
+        Drawing drawing = drawingService.submitToday(deletedMember.getId(), group.getId(), image("dry-run-drawing.webp"));
+        Path drawingFile = uploadedFile(drawing.getImagePath());
+        Path orphan = Path.of(appProperties.getUploadDir()).resolve("orphan-dry-run.webp");
+        Files.createDirectories(orphan.getParent());
+        Files.write(orphan, new byte[] {9, 9, 9});
+        deletedMember.setStatus(UserStatus.DELETED);
+        deletedMember.setNickname("탈퇴한 사용자");
+
+        CleanupReport report = cleanupService.cleanup(false);
+
+        assertThat(report.apply()).isFalse();
+        assertThat(report.orphanUploadCandidates()).isGreaterThanOrEqualTo(1);
+        assertThat(report.deletedMemberships()).isGreaterThanOrEqualTo(1);
+        assertThat(report.deletedDrawings()).isGreaterThanOrEqualTo(1);
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), deletedMember.getId())).isPresent();
+        assertThat(drawingRepository.findById(drawing.getId())).isPresent();
+        assertThat(drawingFile).exists();
+        assertThat(orphan).exists();
+    }
+
+    @Test
+    void cleanupApplyDeletesDeletedMembershipDrawingImageAndOrphanUpload() throws IOException {
+        User owner = user("cleanup-owner");
+        User deletedMember = user("cleanup-deleted");
+        FriendGroup group = groupService.createGroup(owner.getId(), "정리방", 6, "정리");
+        groupService.joinGroup(deletedMember.getId(), group.getInviteCode());
+        Drawing drawing = drawingService.submitToday(deletedMember.getId(), group.getId(), image("cleanup-drawing.webp"));
+        Path drawingFile = uploadedFile(drawing.getImagePath());
+        Path orphan = Path.of(appProperties.getUploadDir()).resolve("orphan-apply.webp");
+        Files.createDirectories(orphan.getParent());
+        Files.write(orphan, new byte[] {8, 8, 8});
+        deletedMember.setStatus(UserStatus.DELETED);
+        deletedMember.setNickname("탈퇴한 사용자");
+
+        CleanupReport report = cleanupService.cleanup(true);
+
+        assertThat(report.apply()).isTrue();
+        assertThat(report.deletedMemberships()).isGreaterThanOrEqualTo(1);
+        assertThat(report.deletedDrawings()).isGreaterThanOrEqualTo(1);
+        assertThat(report.deletedDrawingFiles()).isGreaterThanOrEqualTo(1);
+        assertThat(report.deletedUploadFiles()).isGreaterThanOrEqualTo(1);
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), deletedMember.getId())).isEmpty();
+        assertThat(drawingRepository.findById(drawing.getId())).isEmpty();
+        assertThat(drawingFile).doesNotExist();
+        assertThat(orphan).doesNotExist();
+    }
+
+    @Test
+    void cleanupApplyRepairsDeletedOwnerToOldestActiveMember() {
+        User deletedOwner = user("cleanup-owner-deleted");
+        User firstMember = user("cleanup-owner-first");
+        User secondMember = user("cleanup-owner-second");
+        FriendGroup group = groupService.createGroup(deletedOwner.getId(), "정리위임방", 6, null);
+        groupService.joinGroup(firstMember.getId(), group.getInviteCode());
+        groupService.joinGroup(secondMember.getId(), group.getInviteCode());
+        deletedOwner.setStatus(UserStatus.DELETED);
+        deletedOwner.setNickname("탈퇴한 사용자");
+
+        CleanupReport report = cleanupService.cleanup(true);
+
+        assertThat(report.ownerRepairedGroups()).isGreaterThanOrEqualTo(1);
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), deletedOwner.getId())).isEmpty();
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), firstMember.getId()))
+                .get()
+                .extracting("role")
+                .isEqualTo(MemberRole.OWNER);
+        assertThat(memberRepository.findByGroupIdAndUserId(group.getId(), secondMember.getId()))
+                .get()
+                .extracting("role")
+                .isEqualTo(MemberRole.MEMBER);
+    }
+
+    @Test
+    void cleanupApplyDeletesGroupWithNoActiveMembers() {
+        User deletedOwner = user("cleanup-empty-owner");
+        FriendGroup group = groupService.createGroup(deletedOwner.getId(), "빈정리방", 6, "빈정리");
+        deletedOwner.setStatus(UserStatus.DELETED);
+        deletedOwner.setNickname("탈퇴한 사용자");
+
+        CleanupReport report = cleanupService.cleanup(true);
+
+        assertThat(report.deletedEmptyGroups()).isGreaterThanOrEqualTo(1);
+        assertThat(groupRepository.findById(group.getId())).isEmpty();
+        assertThat(memberRepository.countByGroupId(group.getId())).isZero();
+    }
+
+    @Test
+    void notificationServiceDoesNotNotifyDeletedMembers() {
+        User owner = user("notify-active-owner");
+        User activeMember = user("notify-active-member");
+        User deletedMember = user("notify-deleted-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "알림필터방", 6, null);
+        groupService.joinGroup(activeMember.getId(), group.getInviteCode());
+        groupService.joinGroup(deletedMember.getId(), group.getInviteCode());
+        deletedMember.setStatus(UserStatus.DELETED);
+        deletedMember.setNickname("탈퇴한 사용자");
+
+        chatService.send(owner.getId(), group.getId(), new ChatDtos.SendMessageRequest(ChatMessageType.TEXT, "ACTIVE만 알림", null, null));
+
+        assertThat(notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(activeMember.getId())).isNotEmpty();
+        assertThat(notificationRepository.findTop50ByUserIdOrderByCreatedAtDesc(deletedMember.getId())).isEmpty();
+    }
+
+    @Test
+    void feedDatesExcludeDeletedUserDrawings() {
+        User owner = user("date-active-owner");
+        User deletedMember = user("date-deleted-member");
+        FriendGroup group = groupService.createGroup(owner.getId(), "날짜필터방", 6, null);
+        groupService.joinGroup(deletedMember.getId(), group.getInviteCode());
+        LocalDate deletedOnlyDate = LocalDate.now().minusDays(2);
+        LocalDate activeDate = LocalDate.now().minusDays(1);
+        saveDrawing(deletedMember, group, deletedOnlyDate, "삭제회원날짜");
+        saveDrawing(owner, group, activeDate, "활성회원날짜");
+        deletedMember.setStatus(UserStatus.DELETED);
+
+        assertThat(feedService.dates(owner.getId(), group.getId()).dates())
+                .contains(activeDate)
+                .doesNotContain(deletedOnlyDate);
+    }
+
     private User user(String prefix) {
         User user = new User();
         user.setNickname(prefix + System.nanoTime());
@@ -602,7 +736,17 @@ class DrawlogPolicyIntegrationTest {
     }
 
     private MockMultipartFile image() {
-        return new MockMultipartFile("image", "drawing.webp", "image/webp", new byte[] {1, 2, 3});
+        return image("drawing.webp");
+    }
+
+    private MockMultipartFile image(String filename) {
+        return new MockMultipartFile("image", filename, "image/webp", new byte[] {1, 2, 3});
+    }
+
+    private Path uploadedFile(String imageUrl) {
+        String prefix = appProperties.getPublicUploadPath() + "/";
+        assertThat(imageUrl).startsWith(prefix);
+        return Path.of(appProperties.getUploadDir()).resolve(imageUrl.substring(prefix.length()));
     }
 
     private void saveDrawing(User user, FriendGroup group, LocalDate date, String topicText) {
