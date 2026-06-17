@@ -2,6 +2,36 @@
 
 Drawlog는 친구 그룹 안에서 매일 하나의 그림 주제를 정하고, 각자 웹 캔버스에 그림을 그려 날짜별 피드와 그룹 채팅으로 공유하는 PWA 지향 MVP입니다.
 
+## Backend Highlights
+
+- JWT Access Token 기반 인증
+- Refresh Token Rotation과 HttpOnly Cookie
+- Spring Security 인증/인가
+- PostgreSQL + Spring Data JPA
+- 그룹 OWNER 권한 정책과 방장 위임
+- 로컬 volume 기반 Image Upload Management
+- Daily Topic Scheduler
+- Integration Tests
+
+## Live Demo
+
+- URL: 준비 중
+- Demo Account: 준비 중
+
+## API Documentation
+
+백엔드 실행 후 Swagger UI에서 API 문서를 확인할 수 있습니다.
+
+- Local Swagger: `http://localhost:8081/swagger-ui/index.html`
+- Backend direct Swagger: `http://localhost:8080/swagger-ui/index.html`
+
+JWT가 필요한 API는 Swagger UI의 `Authorize` 버튼에 Access Token을 Bearer Token으로 입력해 호출할 수 있습니다.
+
+## CI Status
+
+[![Backend CI](https://github.com/nsjjjjjj/Drawlog/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/nsjjjjjj/Drawlog/actions/workflows/backend-ci.yml)
+[![Frontend CI](https://github.com/nsjjjjjj/Drawlog/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/nsjjjjjj/Drawlog/actions/workflows/frontend-ci.yml)
+
 ## 기술 구조
 
 - Frontend: React + Vite + HTML Canvas
@@ -249,7 +279,14 @@ backend/src/main/java/com/drawlog
 
 ## 테스트
 
-Docker 백엔드 이미지 빌드 중 `gradle clean test bootJar`가 실행됩니다.
+백엔드는 Gradle Wrapper로 테스트할 수 있습니다.
+
+```bash
+cd backend
+./gradlew test
+```
+
+Docker 백엔드 이미지 빌드 중에도 `gradle clean test bootJar`가 실행됩니다.
 
 ```bash
 docker compose build backend
