@@ -1,8 +1,18 @@
 # Drawlog
 
-Drawlog는 친구 그룹 안에서 매일 하나의 그림 주제를 정하고, 각자 웹 캔버스에 그림을 그려 날짜별 피드와 그룹 채팅으로 공유하는 PWA 지향 MVP입니다.
+Drawlog는 친구 그룹 안에서 매일 하나의 그림 주제를 정하고, 각자 웹 캔버스에 그림을 그려 날짜별 피드와 그룹 채팅으로 공유하는 웹 서비스 MVP입니다.
 
-## Backend Highlights
+> **포트폴리오 요약**
+>
+> - **핵심 역량:** Spring Boot REST API, Spring Security 인증·인가, PostgreSQL 데이터 모델링, Docker Compose 실행 환경
+> - **문제 해결:** 그룹 소유권 이전, 하루 단위 주제·그림 잠금, 탈퇴 사용자 데이터 정리처럼 상태가 얽힌 정책을 서버 규칙과 통합 테스트로 고정
+> - **검증:** 2026-08-09 기준 JDK 17에서 백엔드 36개 테스트 통과, 프런트엔드 4개 테스트와 프로덕션 빌드 통과
+
+## 해결하려는 문제
+
+친구들과 그림을 꾸준히 공유하려면 매일 주제를 정하고, 아직 그림을 제출하지 않은 사람에게는 당일 피드를 숨기며, 날짜가 바뀌는 순간 그림과 투표 상태를 일관되게 잠가야 합니다. Drawlog는 이 흐름을 그룹 권한, 일일 주제, 그림 제출, 피드, 채팅과 알림으로 나누고 서버가 핵심 정책을 검증하도록 구성했습니다.
+
+## 핵심 구현
 
 - JWT Access Token 기반 인증
 - Refresh Token Rotation과 HttpOnly Cookie
@@ -13,10 +23,19 @@ Drawlog는 친구 그룹 안에서 매일 하나의 그림 주제를 정하고, 
 - Daily Topic Scheduler
 - Integration Tests
 
-## Live Demo
+## 전체 구조
 
-- URL: 준비 중
-- Demo Account: 준비 중
+```mermaid
+flowchart LR
+    U["React 웹 클라이언트"] -->|"REST API · JWT"| N["Nginx :8081"]
+    N --> B["Spring Boot :8080"]
+    B --> P[("PostgreSQL")]
+    B --> V["uploads Docker volume"]
+    B --> S["Daily Topic Scheduler"]
+    S --> P
+```
+
+현재 공개 데모와 데모 계정은 운영하지 않습니다. 로컬에서는 Docker Compose로 Nginx, 백엔드, PostgreSQL과 프런트엔드를 함께 실행할 수 있습니다.
 
 ## API Documentation
 
@@ -180,6 +199,24 @@ OWNER 보정은 ACTIVE 멤버 중 `joined_at ASC` 첫 번째 멤버에게 위임
 - 채팅 삭제는 하드 삭제가 아니라 `deleted_at` 기록입니다.
 - 계정 삭제는 사용자 row 소프트 삭제이며 이메일은 `deleted_user_{id}` 형태로 익명화됩니다. 탈퇴 사용자의 membership과 그림 row는 삭제하고, 연결된 프로필/그림 파일도 로컬 Storage에서 정리합니다. 채팅은 유지되며 보낸 사람은 “탈퇴한 사용자”로 표시됩니다.
 
+## 주요 기술적 결정
+
+### 1. Access Token과 회전형 Refresh Token 분리
+
+짧게 유지되는 Access Token은 응답 body로 전달하고, Refresh Token은 HttpOnly 쿠키와 서버 저장소에서 관리합니다. 갱신할 때 기존 토큰을 폐기하고 재사용이 감지되면 해당 사용자의 활성 Refresh Token도 무효화합니다. 브라우저 저장 편의보다 탈취 토큰 재사용을 탐지하는 쪽을 선택했습니다.
+
+### 2. 그룹 소유권의 기준을 membership 역할로 통일
+
+그룹 권한은 `memberships.role = OWNER`를 기준으로 판단합니다. 일반 탈퇴는 명시적 방장 위임을 요구하고, 회원탈퇴에서는 가장 먼저 가입한 남은 멤버에게 자동 위임합니다. 남은 멤버가 없으면 연결 데이터를 정리한 뒤 그룹을 삭제해 소유자 없는 그룹이 남지 않게 했습니다.
+
+### 3. 스케줄러 실패를 조회 경로에서 보완
+
+매일 00:00 스케줄러가 최다 득표 주제를 선택하지만, 실행이 누락돼도 오늘 주제를 조회할 때 값이 없으면 생성합니다. 예약 작업 하나에만 일일 상태 전환을 의존하지 않는 대신, 생성 로직이 중복 실행돼도 일관성을 지키도록 데이터 제약과 서비스 규칙을 함께 관리해야 합니다.
+
+### 4. 파일 저장소를 인터페이스 뒤에 격리
+
+현재 이미지는 단일 서버의 Docker volume에 저장합니다. 애플리케이션은 `StorageService` 인터페이스에 의존하도록 두어 이후 객체 스토리지 구현으로 교체할 수 있게 했습니다. MVP 실행은 단순하지만 다중 인스턴스 운영에는 현재 저장 방식을 그대로 사용할 수 없습니다.
+
 ## API
 
 성공 응답은 데이터만 반환합니다. 에러 응답은 아래 형태입니다.
@@ -305,3 +342,11 @@ npm run build
 ## Cloudflare Tunnel
 
 MVP Compose에는 `cloudflared`를 포함하지 않았습니다. 외부 접속이 필요하면 [docs/cloudflared.md](docs/cloudflared.md)를 참고해 `nginx:80`으로 터널을 연결하세요.
+
+## 현재 한계
+
+- 채팅은 WebSocket이 아니라 REST API polling 방식입니다. 메시지 규모가 커지면 갱신 지연과 반복 요청 비용을 다시 설계해야 합니다.
+- 이미지가 로컬 Docker volume에 저장되므로 여러 백엔드 인스턴스 간 파일 공유, CDN과 객체 스토리지 수명주기는 지원하지 않습니다.
+- 설치 안내 UI는 있지만 현재 트리에는 웹 앱 manifest와 서비스 워커가 없어 완전한 설치형·오프라인 PWA로 보지 않습니다.
+- 공개 배포와 데모 계정은 운영하지 않으며, Cloudflare Tunnel 문서는 사용자가 직접 구성할 때의 참고 자료입니다.
+- 저장소 라이선스는 별도로 명시하지 않았습니다.
